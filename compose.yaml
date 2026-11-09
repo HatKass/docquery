@@ -1,0 +1,210 @@
+# DocQuery local development stack.
+#
+#   docker compose up -d                      # core infrastructure
+#   docker compose --profile ai up -d         # + Ollama (local LLM and embeddings)
+#   docker compose --profile apps up -d --build   # + api-service and ingestion-worker containers
+#
+# Every value has a safe local default; override in a .env file (see .env.example).
+# All images are pinned to exact versions for reproducible builds.
+
+name: docquery
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 20s
+
+services:
+
+  # PostgreSQL 16 + pgvector. Hosts the application database and Keycloak's database.
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg16-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-docquery}
+      POSTGRES_USER: ${POSTGRES_USER:-docquery}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docquery_local}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak_local}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+
+  # Apache Kafka in KRaft mode (combined broker + controller, no ZooKeeper).
+  # Containers use kafka:29092; the host uses localhost:9092.
+  kafka:
+    image: apache/kafka:4.3.2
+    restart: unless-stopped
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-ZG9jcXVlcnktbG9jYWwtMQ}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:29092,CONTROLLER://:9093,EXTERNAL://:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:${KAFKA_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # Topics are declared explicitly by the services (Phase 4), never auto-created by typos.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      <<: *healthcheck-defaults
+      # The CLI starts a JVM, which can take several seconds on a busy laptop.
+      timeout: 20s
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 > /dev/null 2>&1"]
+
+  # S3-compatible object storage (SeaweedFS). See docs/adr/0002-s3-compatible-object-storage.md
+  # for why this replaces MinIO. The app only speaks the S3 API, so any S3 store works.
+  object-storage:
+    image: chrislusf/seaweedfs:4.53
+    restart: unless-stopped
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-docquery}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-docquery_local_secret}
+    entrypoint: ["/bin/sh", "/etc/seaweedfs/entrypoint.sh"]
+    ports:
+      - "${S3_PORT:-8333}:8333"
+    volumes:
+      - object-storage-data:/data
+      - ./infra/object-storage/entrypoint.sh:/etc/seaweedfs/entrypoint.sh:ro
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/healthz || exit 1"]
+
+  # One-shot job: creates the documents bucket through the plain S3 API.
+  object-storage-init:
+    image: amazon/aws-cli:2.39.6
+    restart: "no"
+    depends_on:
+      object-storage:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-docquery}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-docquery_local_secret}
+      AWS_DEFAULT_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-docquery-documents}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        aws --endpoint-url http://object-storage:8333 s3api head-bucket --bucket "$$S3_BUCKET" 2>/dev/null
+        || aws --endpoint-url http://object-storage:8333 s3api create-bucket --bucket "$$S3_BUCKET";
+        echo "bucket $$S3_BUCKET ready"
+
+  # Keycloak (OIDC). Imports the "docquery" realm with demo users on first start.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak_local}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_PORT: 8080
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8180}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_local}
+    ports:
+      - "${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      - ./infra/keycloak/realm:/opt/keycloak/data/import:ro
+    healthcheck:
+      <<: *healthcheck-defaults
+      start_period: 60s
+      # The image has no curl/wget; use bash's /dev/tcp against the management port.
+      test:
+        - "CMD-SHELL"
+        - >
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+
+  # --- Optional: local LLM + embeddings (profile "ai") ------------------------
+  ollama:
+    image: ollama/ollama:0.40.15
+    profiles: ["ai"]
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "ollama", "list"]
+
+  # One-shot job: pulls the chat and embedding models into the shared volume.
+  ollama-pull:
+    image: ollama/ollama:0.40.15
+    profiles: ["ai"]
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'ollama pull "$$OLLAMA_CHAT_MODEL" && ollama pull "$$OLLAMA_EMBEDDING_MODEL" && echo "models ready"'
+
+  # --- Optional: application containers (profile "apps") ----------------------
+  # During development you will usually run these from your IDE / ./mvnw instead.
+  api-service:
+    build: ./api-service
+    profiles: ["apps"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-docquery}
+      DB_USERNAME: ${POSTGRES_USER:-docquery}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-docquery_local}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    healthcheck:
+      <<: *healthcheck-defaults
+      start_period: 40s
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/actuator/health/readiness || exit 1"]
+
+  ingestion-worker:
+    build: ./ingestion-worker
+    profiles: ["apps"]
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "${WORKER_PORT:-8081}:8081"
+    healthcheck:
+      <<: *healthcheck-defaults
+      start_period: 40s
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/actuator/health/readiness || exit 1"]
+
+volumes:
+  postgres-data:
+  kafka-data:
+  object-storage-data:
+  ollama-data:

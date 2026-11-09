@@ -1,0 +1,17 @@
+# Local secrets / overrides — only .env.example is committed
+.env
+.env.*
+!.env.example
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# Build output (service-specific ignores live in each module)
+target/
+node_modules/
+dist/
+coverage/

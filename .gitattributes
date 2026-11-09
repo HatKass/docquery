@@ -1,0 +1,9 @@
+# Normalise line endings in the repo; keep shell scripts LF so they run inside Linux containers
+* text=auto
+*.sh text eol=lf
+mvnw text eol=lf
+*.cmd text eol=crlf
+*.jar binary
+*.png binary
+*.pdf binary
+*.docx binary

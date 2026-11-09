@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-service:
+    name: api-service (build + tests)
+    # Pinned runner image — never ubuntu-latest — so builds are reproducible.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: api-service
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: api-service/pom.xml
+      # Testcontainers uses the runner's Docker daemon (pgvector Postgres).
+      - name: Build and test
+        run: chmod +x mvnw && ./mvnw -B -ntp verify
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-service-test-reports
+          path: api-service/target/surefire-reports/
+
+  ingestion-worker:
+    name: ingestion-worker (build + tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ingestion-worker
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: ingestion-worker/pom.xml
+      # Testcontainers uses the runner's Docker daemon (Kafka in KRaft mode).
+      - name: Build and test
+        run: chmod +x mvnw && ./mvnw -B -ntp verify
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ingestion-worker-test-reports
+          path: ingestion-worker/target/surefire-reports/
+
+  frontend:
+    name: frontend (build + unit tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:ci
+
+  compose:
+    name: docker compose (config + image builds)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate compose file (all profiles)
+        run: docker compose --profile ai --profile apps config --quiet
+      - name: Build service images
+        run: docker compose --profile apps build

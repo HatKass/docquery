@@ -1,0 +1,43 @@
+# All values can be overridden with environment variables; defaults target the
+# local Docker Compose stack (see /compose.yaml and /.env.example).
+spring:
+  application:
+    name: ingestion-worker
+  threads:
+    virtual:
+      enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+server:
+  port: ${WORKER_PORT:8081}
+  shutdown: graceful
+
+docquery:
+  health:
+    kafka:
+      timeout: ${KAFKA_HEALTH_TIMEOUT:3s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      # Detailed component status is useful locally; set to "never" or
+      # "when-authorized" in production.
+      show-details: ${HEALTH_SHOW_DETAILS:always}
+      group:
+        readiness:
+          include: readinessState,kafka
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: DocQuery Ingestion Worker
+    description: Extract, chunk, embed and index uploaded documents
