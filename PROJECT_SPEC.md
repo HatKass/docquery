@@ -102,3 +102,20 @@ Document pipeline statuses: `UPLOADED → EXTRACTING → CHUNKING → EMBEDDING 
 - Do NOT run `git push`, `git pull`, `git fetch`, `git merge`, `git rebase`, `git reset`, or change any remote or branch.
 - Commit **locally only**, and only when I ask. I review and push myself.
 - If you think any GitHub action is needed, stop and ask me first.
+
+## 9. Carry-over notes (decided during earlier phases)
+
+Phase 4 (Ingestion):
+- Use my native Windows Ollama (http://localhost:11434 from source, http://host.docker.internal:11434 from containers). Do not rely on the compose "ai" profile for local dev; keep it only as an optional fallback.
+
+Phase 6 (Usage & admin):
+- Limit how many workspaces a user can create (configurable, e.g. max 3 per user), with a friendly error when exceeded, and an admin override.
+
+Phase 9 (Kubernetes & deployment):
+- The production Keycloak realm must NOT include the dev-only docquery-dev-cli client. Use a separate production realm export.
+- The public demo needs demo users, so do not simply set DEMO_SEED_ENABLED=false. Design a safe demo setup: demo users with limited rights, the daily question/upload quotas from 4.5, and a documented way to reset demo data.
+- Document the local Postgres port conflict (POSTGRES_PORT in .env) in the deployment guide too.
+
+General:
+- Every new workspace-scoped endpoint must be added to TenantIsolationTests (the test already enforces this).
+- Never use "latest" tags for runners or images; pin versions.
