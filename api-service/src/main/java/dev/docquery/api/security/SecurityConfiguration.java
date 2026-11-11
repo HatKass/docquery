@@ -3,6 +3,8 @@ package dev.docquery.api.security;
 import java.time.Duration;
 import java.util.List;
 
+import jakarta.servlet.DispatcherType;
+
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,6 +32,10 @@ class SecurityConfiguration {
 	SecurityFilterChain apiSecurity(HttpSecurity http, JsonMapper jsonMapper) throws Exception {
 		ProblemDetailSecurityHandlers problemHandlers = new ProblemDetailSecurityHandlers(jsonMapper);
 		http.authorizeHttpRequests(auth -> auth
+			// An async dispatch (SSE, streamed downloads) continues a request that was already
+			// authenticated and authorized on its initial REQUEST dispatch.
+			.dispatcherTypeMatchers(DispatcherType.ASYNC)
+			.permitAll()
 			.requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/error")
 			.permitAll()
 			.anyRequest()

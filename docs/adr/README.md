@@ -9,6 +9,7 @@ context → decision → consequences. ADRs are immutable once accepted; a chang
 | 0002 | [S3-compatible object storage: SeaweedFS instead of MinIO](0002-s3-compatible-object-storage.md) | Accepted |
 | 0003 | [Keycloak for identity, OIDC code flow + PKCE, stateless JWT validation](0003-keycloak-for-identity.md) | Accepted |
 | 0004 | [Workspace roles in the database; tenant isolation enforced in every query](0004-workspace-authorization-and-tenant-isolation.md) | Accepted |
+| 0005 | [Document uploads: content-based validation, S3 storage, live status over SSE](0005-document-upload-and-live-status.md) | Accepted |
 
 Planned (later phases): two backend services, Kafka for ingestion events, hybrid search with RRF,
 pgvector vs a dedicated vector DB, LLM provider abstraction.

@@ -4,7 +4,7 @@
 
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)](.github/workflows/ci.yml)
 
-**Status: Phase 2 (Auth & workspaces) complete.** Keycloak login (OIDC + PKCE), multi-workspace membership with OWNER / MEMBER / VIEWER roles, tenant-isolation tests and an Angular workspace switcher are in place. Features land phase by phase (see [Roadmap](#roadmap)).
+**Status: Phase 3 (Documents) complete.** Keycloak login (OIDC + PKCE), multi-workspace roles with tenant-isolation tests, and a document library: content-validated uploads (PDF, DOCX, TXT, Markdown) stored in S3-compatible storage, with live status over Server-Sent Events. Features land phase by phase (see [Roadmap](#roadmap)).
 
 ## Architecture
 
@@ -82,8 +82,8 @@ Sign in at http://localhost:4200 with a demo account. All demo users except `out
 | User | Role in Demo workspace | Can |
 |------|------------------------|-----|
 | `owner` | OWNER | rename/delete the workspace, add/remove members, change roles |
-| `member` | MEMBER | read; upload and ask questions (later phases) |
-| `viewer` | VIEWER | read and ask questions (later phases) |
+| `member` | MEMBER | read; upload and delete documents; ask questions (Phase 5) |
+| `viewer` | VIEWER | read and open documents; ask questions (Phase 5) |
 | `outsider` | none | shows tenant isolation: sees only their own workspaces |
 
 Anyone can create a workspace and becomes its owner. Members are added by username or e-mail once they
@@ -105,6 +105,31 @@ API (all under `/api`, bearer token required, errors are RFC 9457 `application/p
 Non-members always get `404`, never `403`, so workspace ids cannot be probed. See
 [ADR 0003](docs/adr/0003-keycloak-for-identity.md) and [ADR 0004](docs/adr/0004-workspace-authorization-and-tenant-isolation.md).
 
+## Documents
+
+Open a workspace: its home page is the **document library**. Members and owners drag files in (or
+browse); everyone sees the list with status, page and chunk counts, size and uploader, and can open a
+document (PDF and text open in a new tab, Word files download). The **Live** dot shows the status
+stream is connected; changes made in another tab or by another user appear without a refresh.
+
+- Accepted: PDF, DOCX, TXT, Markdown, validated by **content** (a renamed `.exe` is rejected with 415).
+- Max size `DOCUMENT_MAX_FILE_SIZE` (default 25 MB, 413 above it); the same file twice in one workspace is rejected with 409.
+- Files are stored under random keys in the S3 bucket; deleting a document or workspace removes the files.
+- Status model: `UPLOADED → EXTRACTING → CHUNKING → EMBEDDING → READY` or `FAILED` (with reason).
+  Until the ingestion pipeline lands (Phase 4), new documents stay **Queued** (`UPLOADED`).
+
+| Method | Path | Minimum role |
+|--------|------|--------------|
+| GET | `/documents/upload-policy` | signed in |
+| GET | `/workspaces/{id}/documents` | VIEWER |
+| POST | `/workspaces/{id}/documents` (multipart `file`) | MEMBER |
+| GET | `/workspaces/{id}/documents/{docId}` | VIEWER |
+| GET | `/workspaces/{id}/documents/{docId}/content` | VIEWER |
+| DELETE | `/workspaces/{id}/documents/{docId}` | MEMBER |
+| GET | `/workspaces/{id}/documents/events` (SSE) | VIEWER |
+
+See [ADR 0005](docs/adr/0005-document-upload-and-live-status.md).
+
 Get a token from the command line (local dev client only, never in production):
 
 ```bash
@@ -115,7 +140,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/me | jq
 ## Tests
 
 ```bash
-cd api-service && ./mvnw verify        # Testcontainers: pgvector Postgres + real Keycloak with the committed realm
+cd api-service && ./mvnw verify        # Testcontainers: pgvector Postgres, SeaweedFS (S3) and Keycloak with the committed realm
 cd ingestion-worker && ./mvnw verify   # Testcontainers: Kafka (KRaft)
 cd frontend && npm run test:ci         # Vitest
 ```
@@ -126,12 +151,13 @@ cd frontend && npm run test:ci         # Vitest
 - [ADR 0002](docs/adr/0002-s3-compatible-object-storage.md): **SeaweedFS instead of MinIO.** MinIO's community edition was archived and no longer ships images. The app speaks plain S3, so any S3 provider works.
 - [ADR 0003](docs/adr/0003-keycloak-for-identity.md): **Keycloak + OIDC code flow with PKCE**; the API is a stateless resource server that checks signature, issuer and audience.
 - [ADR 0004](docs/adr/0004-workspace-authorization-and-tenant-isolation.md): **Workspace roles live in Postgres**; every query is scoped by workspace; non-members get 404; a guard test covers every workspace endpoint.
+- [ADR 0005](docs/adr/0005-document-upload-and-live-status.md): **Uploads validated by content**, stored under random S3 keys; **live status via SSE over `fetch`** (bearer token in the header, not the URL); forward-only, idempotent status model.
 
 ## Roadmap
 
 1. ✅ Foundation
 2. ✅ Auth & workspaces
-3. Documents
+3. ✅ Documents
 4. Ingestion pipeline
 5. RAG chat
 6. Usage & admin

@@ -27,8 +27,14 @@ export const routes: Routes = [
   {
     path: 'workspaces/:workspaceId',
     canActivate: [authGuard],
+    loadComponent: () => import('./documents/document-library.page').then((m) => m.DocumentLibraryPage),
+    title: 'Documents · DocQuery',
+  },
+  {
+    path: 'workspaces/:workspaceId/members',
+    canActivate: [authGuard],
     loadComponent: () => import('./workspaces/workspace-detail.page').then((m) => m.WorkspaceDetailPage),
-    title: 'Workspace · DocQuery',
+    title: 'Members & settings · DocQuery',
   },
   { path: '**', redirectTo: '' },
 ];

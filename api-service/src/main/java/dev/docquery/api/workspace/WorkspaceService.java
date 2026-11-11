@@ -3,6 +3,7 @@ package dev.docquery.api.workspace;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,12 +28,15 @@ public class WorkspaceService {
 
 	private final UserService users;
 
+	private final ApplicationEventPublisher events;
+
 	WorkspaceService(WorkspaceRepository workspaces, WorkspaceMemberRepository members, WorkspaceAccess access,
-			UserService users) {
+			UserService users, ApplicationEventPublisher events) {
 		this.workspaces = workspaces;
 		this.members = members;
 		this.access = access;
 		this.users = users;
+		this.events = events;
 	}
 
 	@Transactional(readOnly = true)
@@ -64,8 +68,9 @@ public class WorkspaceService {
 	@Transactional
 	public void delete(UUID workspaceId, CurrentUser user) {
 		this.access.require(workspaceId, user, WorkspaceRole.OWNER);
-		// Phase 3+: documents, chunks and stored files are removed with the workspace.
+		// Document rows cascade; stored files are removed after commit by a WorkspaceDeleted listener.
 		this.workspaces.delete(workspaceId);
+		this.events.publishEvent(new WorkspaceEvents.WorkspaceDeleted(workspaceId));
 	}
 
 	@Transactional(readOnly = true)
@@ -113,6 +118,7 @@ public class WorkspaceService {
 			ensureAnotherOwner(workspaceId);
 		}
 		this.members.delete(workspaceId, memberId);
+		this.events.publishEvent(new WorkspaceEvents.MemberRemoved(workspaceId, memberId));
 	}
 
 	private MemberResponse requireMember(UUID workspaceId, UUID memberId) {

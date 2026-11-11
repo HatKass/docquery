@@ -178,6 +178,8 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+      object-storage-init:
+        condition: service_completed_successfully
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-docquery}
       DB_USERNAME: ${POSTGRES_USER:-docquery}
@@ -187,6 +189,13 @@ services:
       OIDC_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-8180}/realms/docquery
       OIDC_JWK_SET_URI: http://keycloak:8080/realms/docquery/protocol/openid-connect/certs
       DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-true}
+      S3_ENDPOINT: http://object-storage:8333
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-docquery}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-docquery_local_secret}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-docquery-documents}
+      DOCUMENT_MAX_FILE_SIZE: ${DOCUMENT_MAX_FILE_SIZE:-25MB}
+      DOCUMENT_MAX_REQUEST_SIZE: ${DOCUMENT_MAX_REQUEST_SIZE:-26MB}
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:
