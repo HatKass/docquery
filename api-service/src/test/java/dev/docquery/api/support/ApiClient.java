@@ -6,12 +6,13 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Small helpers over {@link MockMvcTester} for the workspace API. */
+/** Small helpers over {@link MockMvcTester} for the workspace and document APIs. */
 public final class ApiClient {
 
 	private final MockMvcTester mvc;
@@ -37,6 +38,23 @@ public final class ApiClient {
 
 	public MvcTestResult patch(TestUser user, String uri, String body) {
 		return this.mvc.patch().uri(uri).with(user.auth()).contentType(MediaType.APPLICATION_JSON).content(body).exchange();
+	}
+
+	/** Multipart upload exactly like the browser sends it ({@code file} part, generic content type). */
+	public MvcTestResult upload(TestUser user, UUID workspaceId, String filename, byte[] content) {
+		return this.mvc.post()
+			.uri("/api/workspaces/" + workspaceId + "/documents")
+			.multipart()
+			.file(new MockMultipartFile("file", filename, MediaType.APPLICATION_OCTET_STREAM_VALUE, content))
+			.with(user.auth())
+			.exchange();
+	}
+
+	/** Uploads a file that must be accepted and returns the new document's id. */
+	public UUID uploadDocument(TestUser user, UUID workspaceId, String filename, byte[] content) {
+		MvcTestResult result = upload(user, workspaceId, filename, content);
+		assertThat(result).hasStatus(HttpStatus.CREATED);
+		return UUID.fromString(body(result).get("id").asString());
 	}
 
 	public MvcTestResult delete(TestUser user, String uri) {

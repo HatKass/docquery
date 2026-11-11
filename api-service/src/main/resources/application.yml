@@ -27,6 +27,13 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  servlet:
+    multipart:
+      # Must allow docquery.documents.max-file-size; the request limit adds room for multipart headers.
+      max-file-size: ${DOCUMENT_MAX_FILE_SIZE:25MB}
+      max-request-size: ${DOCUMENT_MAX_REQUEST_SIZE:26MB}
+      # Spool uploads to disk (never hold whole files in memory).
+      file-size-threshold: 0
   security:
     oauth2:
       resourceserver:
@@ -67,6 +74,24 @@ docquery:
     # Seeds the demo users' memberships and "Demo workspace" (db/demo). Set
     # DEMO_SEED_ENABLED=false in production.
     seed-enabled: ${DEMO_SEED_ENABLED:true}
+  documents:
+    # Largest accepted upload. Raise DOCUMENT_MAX_REQUEST_SIZE along with it.
+    max-file-size: ${DOCUMENT_MAX_FILE_SIZE:25MB}
+    # Live status streams end after this long; the browser reconnects with a fresh token.
+    event-stream-timeout: ${DOCUMENT_EVENT_STREAM_TIMEOUT:15m}
+    event-stream-heartbeat: 20s
+  storage:
+    s3:
+      # Any S3-compatible store. Leave S3_ENDPOINT empty for AWS S3, and S3_ACCESS_KEY empty to use
+      # the AWS default credentials chain (IAM role, AWS_* variables...).
+      endpoint: ${S3_ENDPOINT:http://localhost:${S3_PORT:8333}}
+      region: ${S3_REGION:us-east-1}
+      access-key: ${S3_ACCESS_KEY:docquery}
+      secret-key: ${S3_SECRET_KEY:docquery_local_secret}
+      bucket: ${S3_BUCKET:docquery-documents}
+      path-style-access: ${S3_PATH_STYLE_ACCESS:true}
+      # Convenience for local runs; production buckets are created by infrastructure code.
+      create-bucket: ${S3_CREATE_BUCKET:false}
   security:
     # Origins allowed to call the API directly from a browser. The Angular dev server
     # proxies /api, so this only matters when the SPA is served from another origin.

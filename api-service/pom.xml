@@ -19,6 +19,8 @@
 		     (verified against start.spring.io compatibility ranges). Added to the BOM now so
 		     later phases pick up a single, consistent version. -->
 		<spring-ai.version>2.0.1</spring-ai.version>
+		<!-- AWS SDK v2, used only as a plain S3 client (works with SeaweedFS, MinIO, AWS S3...). -->
+		<aws-sdk.version>2.57.5</aws-sdk.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -26,6 +28,13 @@
 				<groupId>org.springframework.ai</groupId>
 				<artifactId>spring-ai-bom</artifactId>
 				<version>${spring-ai.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>software.amazon.awssdk</groupId>
+				<artifactId>bom</artifactId>
+				<version>${aws-sdk.version}</version>
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
@@ -59,6 +68,17 @@
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<exclusions>
+				<!-- Only the synchronous client (Apache HTTP) is used; keep Netty off the classpath. -->
+				<exclusion>
+					<groupId>software.amazon.awssdk</groupId>
+					<artifactId>netty-nio-client</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 
 		<dependency>

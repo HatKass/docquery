@@ -4,14 +4,16 @@ import { firstValueFrom } from 'rxjs';
 import { problemMessage } from '../shared/problem';
 import { WorkspaceApi } from './workspace-api.service';
 import { WorkspaceContext } from './workspace-context.service';
+import { WorkspaceNav } from './workspace-nav';
 import { Member, WORKSPACE_ROLES, WorkspaceRole } from './workspace.model';
 
 /**
- * A workspace's home: name, the caller's role and the member list. Owners can rename, manage members
- * and delete; everyone can leave. (Documents and chat arrive in later phases.)
+ * A workspace's "Members & settings" tab: name, the caller's role and the member list. Owners can
+ * rename, manage members and delete; everyone can leave. (The workspace home is the document library.)
  */
 @Component({
   selector: 'app-workspace-detail-page',
+  imports: [WorkspaceNav],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (notFound()) {
@@ -46,9 +48,7 @@ import { Member, WORKSPACE_ROLES, WorkspaceRole } from './workspace.model';
               </form>
             }
           </div>
-          <p class="mt-4 rounded-md bg-slate-50 p-3 text-sm text-slate-600">
-            Documents and chat for this workspace arrive in the next phases.
-          </p>
+          <div class="mt-4"><app-workspace-nav [workspaceId]="ws.id" /></div>
         </div>
 
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
