@@ -62,10 +62,37 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "docquery-dev-cli",
+      "name": "DocQuery dev CLI (local only)",
+      "description": "LOCAL DEVELOPMENT ONLY: password grant so you can get a token with curl and run API tests against the real realm. Never include this client in a production realm.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "docquery-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "docquery-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
     {
+      "id": "6f1c1a3e-0c55-4c1b-9d7e-1a2b3c4d0001",
       "username": "owner",
       "enabled": true,
       "emailVerified": true,
@@ -81,6 +108,7 @@
       ]
     },
     {
+      "id": "6f1c1a3e-0c55-4c1b-9d7e-1a2b3c4d0002",
       "username": "member",
       "enabled": true,
       "emailVerified": true,
@@ -96,12 +124,29 @@
       ]
     },
     {
+      "id": "6f1c1a3e-0c55-4c1b-9d7e-1a2b3c4d0003",
       "username": "viewer",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Vera",
       "lastName": "Viewer",
       "email": "viewer@docquery.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "demo123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "6f1c1a3e-0c55-4c1b-9d7e-1a2b3c4d0004",
+      "username": "outsider",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Oscar",
+      "lastName": "Outsider",
+      "email": "outsider@docquery.local",
       "credentials": [
         {
           "type": "password",

@@ -176,10 +176,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-docquery}
       DB_USERNAME: ${POSTGRES_USER:-docquery}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-docquery_local}
+      # Tokens are issued for the URL the browser uses (localhost), but the container
+      # fetches signing keys over the compose network.
+      OIDC_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-8180}/realms/docquery
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/docquery/protocol/openid-connect/certs
+      DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-true}
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:
