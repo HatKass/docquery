@@ -23,9 +23,13 @@ public final class DocumentDtos {
 			String uploadedByName, Instant uploadedAt, Instant statusChangedAt) {
 	}
 
-	/** Limits the UI checks before uploading, so users get instant feedback (the API re-checks). */
+	/**
+	 * Limits the UI checks before uploading, so users get instant feedback (the API re-checks).
+	 *
+	 * @param requeueAfterSeconds after how long a still-queued document may be retried
+	 */
 	public record UploadPolicyResponse(long maxFileSizeBytes, List<String> allowedExtensions,
-			List<String> allowedContentTypes) {
+			List<String> allowedContentTypes, long requeueAfterSeconds) {
 	}
 
 	/**

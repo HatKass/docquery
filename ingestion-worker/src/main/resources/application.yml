@@ -3,11 +3,79 @@
 spring:
   application:
     name: ingestion-worker
+  config:
+    # Run from source (./mvnw spring-boot:run in ingestion-worker/): read the repo-root .env that
+    # Docker Compose and api-service also read. Optional; real environment variables win.
+    import: optional:file:${DOCQUERY_ENV_FILE:../.env}[.properties]
   threads:
     virtual:
       enabled: true
+  datasource:
+    # Same database as api-service, which owns the schema (Flyway runs there, not here).
+    url: ${DB_URL:jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/${POSTGRES_DB:docquery}}
+    username: ${DB_USERNAME:${POSTGRES_USER:docquery}}
+    password: ${DB_PASSWORD:${POSTGRES_PASSWORD:docquery_local}}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:5}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ingestion-worker
+      auto-offset-reset: earliest
+      # One document at a time per consumer: processing takes seconds to minutes.
+      max-poll-records: 1
+      properties:
+        # Time allowed for one document (including retries) before the broker reassigns it.
+        max.poll.interval.ms: ${INGESTION_MAX_POLL_INTERVAL_MS:900000}
+    producer:
+      acks: all
+    listener:
+      ack-mode: record
+      # Documents processed in parallel by this instance (topics have docquery.ingestion.topics.partitions).
+      concurrency: ${INGESTION_CONCURRENCY:2}
+
+  # --- Embeddings (Spring AI). The provider is configuration, not code. ---------------------
+  ai:
+    model:
+      # ollama (local, default) | openai. Exactly one embedding model is created.
+      embedding: ${EMBEDDING_PROVIDER:ollama}
+      # The worker needs no chat, image, audio or moderation model.
+      chat: none
+      image: none
+      audio:
+        speech: none
+        transcription: none
+      moderation: none
+    ollama:
+      # Native Ollama on the host. From a container: http://host.docker.internal:11434
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      embedding:
+        model: ${OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
+      init:
+        # Models are pulled by you (ollama pull ...), never silently at startup.
+        pull-model-strategy: never
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      embedding:
+        model: ${OPENAI_EMBEDDING_MODEL:text-embedding-3-small}
+        # 768 matches nomic-embed-text and the HNSW index of migration V4.
+        dimensions: ${OPENAI_EMBEDDING_DIMENSIONS:768}
+    retry:
+      # Short in-call retries; longer outages are handled by Kafka redelivery with backoff.
+      max-attempts: 2
+      backoff:
+        initial-interval: 1s
+        multiplier: 2
+        max-interval: 5s
+  http:
+    clients:
+      imperative:
+        # Plain HTTP/1.1 (HttpURLConnection). The JDK HttpClient's default h2c upgrade attempt on
+        # plain-HTTP POSTs can stall the first request to Ollama until the read timeout.
+        factory: simple
+      connect-timeout: 5s
+      # Generous: Ollama loads a model into memory on its first request.
+      read-timeout: ${EMBEDDING_READ_TIMEOUT:120s}
 
 server:
   port: ${WORKER_PORT:8081}
@@ -17,6 +85,40 @@ docquery:
   health:
     kafka:
       timeout: ${KAFKA_HEALTH_TIMEOUT:3s}
+  storage:
+    s3:
+      endpoint: ${S3_ENDPOINT:http://localhost:${S3_PORT:8333}}
+      region: ${S3_REGION:us-east-1}
+      access-key: ${S3_ACCESS_KEY:docquery}
+      secret-key: ${S3_SECRET_KEY:docquery_local_secret}
+      bucket: ${S3_BUCKET:docquery-documents}
+      path-style-access: ${S3_PATH_STYLE_ACCESS:true}
+  ingestion:
+    topics:
+      uploaded: document.uploaded
+      status: document.status
+      dead-letter: document.uploaded.dlt
+      partitions: ${KAFKA_TOPIC_PARTITIONS:3}
+      replicas: ${KAFKA_TOPIC_REPLICAS:1}
+    limits:
+      max-characters: ${INGESTION_MAX_CHARACTERS:2000000}
+      max-chunks: ${INGESTION_MAX_CHUNKS:5000}
+    chunking:
+      # ~300 / ~50 tokens of English text.
+      max-characters: ${CHUNK_MAX_CHARACTERS:1200}
+      overlap-characters: ${CHUNK_OVERLAP_CHARACTERS:200}
+    embedding:
+      # Recorded with every chunk. Resolves to the model of the selected provider
+      # (spring.ai.ollama.embedding.model or spring.ai.openai.embedding.model).
+      model: ${spring.ai.${spring.ai.model.embedding}.embedding.model}
+      batch-size: ${EMBEDDING_BATCH_SIZE:32}
+      # nomic-embed-text expects this task prefix; set EMBEDDING_DOCUMENT_PREFIX= (empty) for other models.
+      document-prefix: "${EMBEDDING_DOCUMENT_PREFIX:search_document: }"
+    retry:
+      max-attempts: ${INGESTION_MAX_ATTEMPTS:4}
+      initial-interval: 2s
+      multiplier: 3
+      max-interval: 60s
 
 management:
   endpoints:
@@ -32,7 +134,7 @@ management:
       show-details: ${HEALTH_SHOW_DETAILS:always}
       group:
         readiness:
-          include: readinessState,kafka
+          include: readinessState,kafka,db
   info:
     env:
       enabled: true

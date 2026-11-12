@@ -1,11 +1,19 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
+import { ConfirmDialog, ConfirmOptions } from '../shared/confirm-dialog';
 import { problemMessage } from '../shared/problem';
 import { WorkspaceApi } from './workspace-api.service';
 import { WorkspaceContext } from './workspace-context.service';
 import { WorkspaceNav } from './workspace-nav';
 import { Member, WORKSPACE_ROLES, WorkspaceRole } from './workspace.model';
+
+/** What each role allows, shown when changing someone's role. */
+const ROLE_CONSEQUENCES: Record<WorkspaceRole, string> = {
+  VIEWER: 'Viewers can read documents but cannot upload, delete or manage members.',
+  MEMBER: 'Members can read, upload and delete documents but cannot manage members or workspace settings.',
+  OWNER: 'Owners have full control of the workspace.',
+};
 
 /**
  * A workspace's "Members & settings" tab: name, the caller's role and the member list. Owners can
@@ -68,6 +76,7 @@ import { Member, WORKSPACE_ROLES, WorkspaceRole } from './workspace.model';
                       <select
                         [id]="'role-' + m.userId"
                         class="rounded border border-slate-300 px-1 py-0.5"
+                        [attr.data-testid]="'role-select-' + m.userId"
                         (change)="changeRole(m, $any($event.target))"
                       >
                         @for (r of roles; track r) {
@@ -80,9 +89,25 @@ import { Member, WORKSPACE_ROLES, WorkspaceRole } from './workspace.model';
                   </td>
                   <td class="text-right">
                     @if (m.userId === myId()) {
-                      <button type="button" class="text-red-700 hover:underline" (click)="remove(m)">Leave</button>
+                      <button
+                        type="button"
+                        class="text-red-700 hover:underline"
+                        data-testid="leave-workspace"
+                        [attr.aria-label]="'Leave ' + ws.name"
+                        (click)="remove(m)"
+                      >
+                        Leave
+                      </button>
                     } @else if (isOwner()) {
-                      <button type="button" class="text-red-700 hover:underline" (click)="remove(m)">Remove</button>
+                      <button
+                        type="button"
+                        class="text-red-700 hover:underline"
+                        [attr.data-testid]="'remove-member-' + m.userId"
+                        [attr.aria-label]="'Remove ' + m.displayName"
+                        (click)="remove(m)"
+                      >
+                        Remove
+                      </button>
                     }
                   </td>
                 </tr>
@@ -126,7 +151,12 @@ import { Member, WORKSPACE_ROLES, WorkspaceRole } from './workspace.model';
           <div class="rounded-xl border border-red-200 bg-white p-6">
             <h3 class="font-semibold text-red-800">Delete workspace</h3>
             <p class="mt-1 text-sm text-slate-600">Removes the workspace for everyone. This cannot be undone.</p>
-            <button type="button" class="mt-3 rounded-md bg-red-600 px-4 py-2 text-sm text-white" (click)="deleteWorkspace()">
+            <button
+              type="button"
+              class="mt-3 rounded-md bg-red-600 px-4 py-2 text-sm text-white"
+              data-testid="delete-workspace"
+              (click)="deleteWorkspace()"
+            >
               Delete “{{ ws.name }}”
             </button>
           </div>
@@ -148,6 +178,7 @@ export class WorkspaceDetailPage {
   private readonly api = inject(WorkspaceApi);
   private readonly context = inject(WorkspaceContext);
   private readonly router = inject(Router);
+  private readonly confirm = inject(ConfirmDialog);
 
   protected readonly roles = WORKSPACE_ROLES;
   protected readonly members = signal<Member[]>([]);
@@ -225,34 +256,125 @@ export class WorkspaceDetailPage {
     }
   }
 
+  /**
+   * Every role change is confirmed. Promoting to OWNER and changing your own role are risky, so they
+   * use the danger variant. On cancel (or a rejected change the user gives up on) the dropdown goes
+   * back to the stored role: Angular will not re-apply [selected] because the bound value did not change.
+   */
   protected async changeRole(member: Member, select: HTMLSelectElement): Promise<void> {
     const role = select.value as WorkspaceRole;
-    const ok = await this.run(() => firstValueFrom(this.api.changeRole(this.workspaceId(), member.userId, role)));
-    if (!ok) {
-      // The API rejected the change (e.g. last owner): show the role that is actually stored again.
-      // Angular won't re-apply [selected] because the bound value did not change.
+    if (role === member.role) {
+      return;
+    }
+    const changed = await this.confirmChange(this.roleChangeDialog(member, role), () =>
+      firstValueFrom(this.api.changeRole(this.workspaceId(), member.userId, role)),
+    );
+    if (!changed) {
       select.value = member.role;
     }
   }
 
+  private roleChangeDialog(member: Member, role: WorkspaceRole): ConfirmOptions {
+    const self = member.userId === this.myId();
+    const workspace = this.workspace()?.name ?? 'this workspace';
+    const parts = [ROLE_CONSEQUENCES[role]];
+    if (role === 'OWNER') {
+      parts.push(
+        `${self ? 'You' : member.displayName} will be able to manage members, remove other owners (including you) ` +
+          `and delete ${workspace} with all its documents.`,
+      );
+    }
+    if (self) {
+      parts.push(
+        'You are changing your own role: you may immediately lose access to members and settings, ' +
+          'and only another owner can give it back.',
+      );
+    }
+    const danger = self || role === 'OWNER';
+    return {
+      title: self
+        ? `Change your own role from ${member.role} to ${role}?`
+        : `Change ${member.displayName}'s role from ${member.role} to ${role}?`,
+      message: parts.join(' '),
+      variant: danger ? 'danger' : 'default',
+      confirmLabel: role === 'OWNER' && !self ? 'Make owner' : self ? 'Change my role' : 'Change role',
+      busyLabel: 'Saving…',
+    };
+  }
+
   protected async remove(member: Member): Promise<void> {
     const leaving = member.userId === this.myId();
-    const question = leaving ? 'Leave this workspace?' : `Remove ${member.displayName} from this workspace?`;
-    if (!confirm(question)) {
-      return;
-    }
-    if ((await this.run(() => firstValueFrom(this.api.removeMember(this.workspaceId(), member.userId)))) && leaving) {
+    const workspace = this.workspace()?.name ?? 'this workspace';
+    const options: ConfirmOptions = leaving
+      ? {
+          title: `Leave ${workspace}?`,
+          message:
+            'You will immediately lose access to its documents. Documents you uploaded stay in the workspace. ' +
+            'Only an owner can add you again.',
+          variant: 'danger',
+          confirmLabel: 'Leave workspace',
+          busyLabel: 'Leaving…',
+        }
+      : {
+          title: `Remove ${member.displayName} from ${workspace}?`,
+          message:
+            `${member.displayName} will immediately lose access to its documents. ` +
+            'Documents they uploaded stay in the workspace.',
+          variant: 'danger',
+          confirmLabel: 'Remove member',
+          busyLabel: 'Removing…',
+        };
+    const removed = await this.confirmChange(options, () =>
+      firstValueFrom(this.api.removeMember(this.workspaceId(), member.userId)),
+    );
+    if (removed && leaving) {
       await this.router.navigate(['/workspaces']);
     }
   }
 
   protected async deleteWorkspace(): Promise<void> {
     const ws = this.workspace();
-    if (!ws || !confirm(`Delete “${ws.name}” for all members? This cannot be undone.`)) {
+    if (!ws) {
       return;
     }
-    if (await this.run(() => firstValueFrom(this.api.delete(ws.id)))) {
+    const deleted = await this.confirmChange(
+      {
+        title: `Delete ${ws.name}?`,
+        message:
+          'The workspace, all its documents with their text chunks and embeddings, and its member list will be ' +
+          'permanently removed for everyone. This cannot be undone.',
+        variant: 'danger',
+        confirmLabel: 'Delete workspace',
+        busyLabel: 'Deleting…',
+      },
+      () => firstValueFrom(this.api.delete(ws.id)),
+    );
+    if (deleted) {
       await this.router.navigate(['/workspaces']);
+    }
+  }
+
+  /**
+   * Confirms, runs the request inside the dialog (busy state, errors shown there), then refreshes
+   * the workspace list and members. @returns whether the change was made
+   */
+  private async confirmChange(options: ConfirmOptions, request: () => Promise<unknown>): Promise<boolean> {
+    this.error.set(null);
+    const done = await this.confirm.open({ ...options, action: request });
+    if (done) {
+      await this.refreshAfterChange();
+    }
+    return done;
+  }
+
+  private async refreshAfterChange(): Promise<void> {
+    try {
+      await this.context.load();
+      if (this.context.workspaces().some((w) => w.id === this.workspaceId())) {
+        await this.reloadMembers();
+      }
+    } catch (e) {
+      this.error.set(problemMessage(e));
     }
   }
 }

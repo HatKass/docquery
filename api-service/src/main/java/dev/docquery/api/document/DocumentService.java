@@ -28,6 +28,7 @@ import org.springframework.web.multipart.MultipartFile;
 import dev.docquery.api.common.error.ApiException;
 import dev.docquery.api.document.DocumentDtos.DocumentResponse;
 import dev.docquery.api.document.DocumentDtos.UploadPolicyResponse;
+import dev.docquery.api.document.DocumentRepository.IngestionSource;
 import dev.docquery.api.document.DocumentRepository.NewDocument;
 import dev.docquery.api.storage.ObjectStorage;
 import dev.docquery.api.user.CurrentUser;
@@ -36,7 +37,7 @@ import dev.docquery.api.workspace.WorkspaceEvents;
 import dev.docquery.api.workspace.WorkspaceRole;
 
 /**
- * Document use cases: upload, list, download, delete. Each starts with a {@link WorkspaceAccess}
+ * Document use cases: upload, list, download, re-index, delete. Each starts with a {@link WorkspaceAccess}
  * check, and every query is scoped by the same workspace id.
  * <p>
  * Upload order: validate → store the file → insert the row. If the insert fails, the stored file is
@@ -62,9 +63,11 @@ public class DocumentService {
 
 	private final TransactionTemplate transactions;
 
+	private final DocumentStatusService statusService;
+
 	DocumentService(DocumentRepository documents, WorkspaceAccess access, ObjectStorage storage,
 			DocumentTypeDetector detector, DocumentProperties properties, ApplicationEventPublisher events,
-			TransactionTemplate transactions) {
+			TransactionTemplate transactions, DocumentStatusService statusService) {
 		this.documents = documents;
 		this.access = access;
 		this.storage = storage;
@@ -72,6 +75,7 @@ public class DocumentService {
 		this.properties = properties;
 		this.events = events;
 		this.transactions = transactions;
+		this.statusService = statusService;
 	}
 
 	/** Storage layout: one prefix per workspace (so it can be removed in one go), random object names. */
@@ -81,7 +85,8 @@ public class DocumentService {
 
 	public UploadPolicyResponse uploadPolicy() {
 		return new UploadPolicyResponse(this.properties.maxFileSize().toBytes(), DocumentType.allExtensions(),
-				Arrays.stream(DocumentType.values()).map(DocumentType::mediaType).toList());
+				Arrays.stream(DocumentType.values()).map(DocumentType::mediaType).toList(),
+				this.properties.requeueAfter().toSeconds());
 	}
 
 	public List<DocumentResponse> list(UUID workspaceId, CurrentUser user) {
@@ -126,6 +131,8 @@ public class DocumentService {
 							sha256, key, user.id()));
 					DocumentResponse created = this.documents.find(workspaceId, id).orElseThrow();
 					this.events.publishEvent(DocumentChangedEvent.created(created));
+					this.events.publishEvent(new DocumentIngestionRequested(id, workspaceId, key, type.mediaType(),
+							filename, user.id(), DocumentIngestionRequested.Reason.UPLOAD));
 					return created;
 				});
 			}
@@ -153,6 +160,76 @@ public class DocumentService {
 		}
 	}
 
+	/**
+	 * Queues a document for indexing again:
+	 * <ul>
+	 * <li>READY or FAILED: retry after a failure, or pick up a new embedding model. The document goes
+	 * back to UPLOADED (counts cleared); its old chunks stay searchable until the worker replaces them.</li>
+	 * <li>UPLOADED for longer than {@code docquery.documents.requeue-after}: the safety net for a
+	 * request that was lost or never created. The status stays UPLOADED, its timer restarts.</li>
+	 * </ul>
+	 * Anything else is in progress and answered with 409. The new request is queued in the same
+	 * transaction; a duplicate of a request still in flight is harmless (the worker is idempotent).
+	 */
+	public DocumentResponse reindex(UUID workspaceId, UUID documentId, CurrentUser user) {
+		this.access.require(workspaceId, user, WorkspaceRole.MEMBER);
+		return this.transactions.execute(status -> {
+			IngestionSource source = this.documents.findIngestionSource(workspaceId, documentId)
+				.orElseThrow(() -> notFound(documentId));
+			if (!requestReindex(source) && !requeueIfStuck(source)) {
+				throw ApiException.conflict("document-busy", "The document is still being processed. You can retry "
+						+ "it once it is ready, has failed, or has been queued for more than " + requeueAfterText() + ".");
+			}
+			return this.documents.find(workspaceId, documentId).orElseThrow();
+		});
+	}
+
+	/** Within a transaction: re-queue a document stuck in UPLOADED; false if it is not stuck. */
+	private boolean requeueIfStuck(IngestionSource source) {
+		if (!this.documents.touchIfQueuedLongerThan(source.workspaceId(), source.id(),
+				this.properties.requeueAfter().toSeconds())) {
+			return false;
+		}
+		this.documents.find(source.workspaceId(), source.id())
+			.ifPresent(updated -> this.events.publishEvent(DocumentChangedEvent.updated(updated)));
+		this.events.publishEvent(new DocumentIngestionRequested(source.id(), source.workspaceId(), source.storageKey(),
+				source.contentType(), source.filename(), source.uploadedBy(), DocumentIngestionRequested.Reason.REQUEUE));
+		log.info("Re-queued document {} of workspace {}: still queued after {}", source.id(), source.workspaceId(),
+				this.properties.requeueAfter());
+		return true;
+	}
+
+	private String requeueAfterText() {
+		long minutes = this.properties.requeueAfter().toMinutes();
+		return (minutes >= 1) ? minutes + (minutes == 1 ? " minute" : " minutes")
+				: this.properties.requeueAfter().toSeconds() + " seconds";
+	}
+
+	/**
+	 * Maintenance: re-indexes finished documents of all workspaces whose chunks were embedded with a
+	 * model other than {@code currentModel} (or all of them). One transaction per document.
+	 * @return the number of documents queued
+	 */
+	public int reindexForEmbeddingModel(String currentModel, boolean all) {
+		int queued = 0;
+		for (IngestionSource source : this.documents.findReindexCandidates(currentModel, all)) {
+			if (Boolean.TRUE.equals(this.transactions.execute(status -> requestReindex(source)))) {
+				queued++;
+			}
+		}
+		return queued;
+	}
+
+	/** Within a transaction: back to UPLOADED and queue a request; false if the document is busy. */
+	private boolean requestReindex(IngestionSource source) {
+		if (!this.statusService.transition(source.id(), DocumentStatus.UPLOADED, null, null, null)) {
+			return false;
+		}
+		this.events.publishEvent(new DocumentIngestionRequested(source.id(), source.workspaceId(), source.storageKey(),
+				source.contentType(), source.filename(), source.uploadedBy(), DocumentIngestionRequested.Reason.REINDEX));
+		return true;
+	}
+
 	/** Content of a document for download; the caller must close the stream. */
 	public DocumentContent content(UUID workspaceId, UUID documentId, CurrentUser user) {
 		DocumentResponse document = get(workspaceId, documentId, user);
@@ -167,7 +244,8 @@ public class DocumentService {
 			this.events.publishEvent(DocumentChangedEvent.deleted(workspaceId, documentId));
 			return storageKey;
 		});
-		// Phase 4: chunks and vectors are removed by the same cascade as the row.
+		// Chunks and vectors went with the row (ON DELETE CASCADE); a worker still processing the
+		// document notices it is gone and discards its result.
 		deleteQuietly(key);
 	}
 

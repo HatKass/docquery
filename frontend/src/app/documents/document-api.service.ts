@@ -22,6 +22,11 @@ export class DocumentApi {
     return this.http.post<DocumentSummary>(`/api/workspaces/${workspaceId}/documents`, body);
   }
 
+  /** Processes a finished (READY or FAILED) document again; answers with the reset document. */
+  reindex(workspaceId: string, documentId: string): Observable<DocumentSummary> {
+    return this.http.post<DocumentSummary>(`/api/workspaces/${workspaceId}/documents/${documentId}/reindex`, null);
+  }
+
   delete(workspaceId: string, documentId: string): Observable<void> {
     return this.http.delete<void>(`/api/workspaces/${workspaceId}/documents/${documentId}`);
   }

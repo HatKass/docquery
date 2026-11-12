@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { Subject } from 'rxjs';
+import { confirmDialog } from '../shared/testing/confirm-dialog.harness';
 import { WorkspaceRole } from '../workspaces/workspace.model';
 import { DocumentLibraryPage } from './document-library.page';
 import { DocumentEvents } from './document-events.service';
@@ -25,7 +26,14 @@ const doc = (id: string, overrides: Partial<DocumentSummary> = {}): DocumentSumm
   ...overrides,
 });
 
-const policy = { maxFileSizeBytes: 1_048_576, allowedExtensions: ['docx', 'md', 'pdf', 'txt'], allowedContentTypes: [] };
+const policy = {
+  maxFileSizeBytes: 1_048_576,
+  allowedExtensions: ['docx', 'md', 'pdf', 'txt'],
+  allowedContentTypes: [],
+  requeueAfterSeconds: 600,
+};
+
+const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
 describe('DocumentLibraryPage', () => {
   let http: HttpTestingController;
@@ -148,6 +156,130 @@ describe('DocumentLibraryPage', () => {
     expect(pending).toContain('Unsupported file type');
     expect(pending).toContain('huge.txt');
     expect(pending).toContain('the limit is 1.0 MB');
+  });
+
+  it('offers Retry for failed and Re-index for ready documents to members only', async () => {
+    const { fixture, rows } = await open('MEMBER', [
+      doc('ready', { status: 'READY', pageCount: 1, chunkCount: 2 }),
+      doc('bad', { status: 'FAILED', failureReason: 'The embedding service was unavailable.' }),
+      doc('busy', { status: 'EMBEDDING' }),
+    ]);
+    const action = (row: Element) => row.querySelector<HTMLButtonElement>('[data-testid="reindex"]');
+    expect(action(rows()[0])?.textContent?.trim()).toBe('Re-index');
+    expect(action(rows()[1])?.textContent?.trim()).toBe('Retry');
+    expect(action(rows()[2])).toBeNull();
+
+    action(rows()[1])!.click();
+    const post = http.expectOne('/api/workspaces/demo/documents/bad/reindex');
+    expect(post.request.method).toBe('POST');
+    post.flush(doc('bad', { status: 'UPLOADED' }));
+    await tick();
+    await fixture.whenStable();
+
+    expect(rows()[1].querySelector('[data-testid="status"]')?.textContent).not.toContain('Failed');
+    expect(action(rows()[1])).toBeNull();
+  });
+
+  it('offers Retry for a document queued longer than the policy allows', async () => {
+    const { fixture, rows } = await open('MEMBER', [
+      doc('fresh', { status: 'UPLOADED', statusChangedAt: minutesAgo(2) }),
+      doc('stuck', { status: 'UPLOADED', statusChangedAt: minutesAgo(11) }),
+    ]);
+    const action = (id: string) =>
+      rows()
+        .find((r) => r.getAttribute('data-document-id') === id)
+        ?.querySelector<HTMLButtonElement>('[data-testid="reindex"]') ?? null;
+    expect(action('fresh')).toBeNull();
+    expect(action('stuck')?.textContent?.trim()).toBe('Retry');
+    expect(action('stuck')?.title).toContain('Still queued');
+
+    // Time passes: the fresh document becomes stuck too, without a reload.
+    fixture.componentInstance['now'].set(Date.now() + 9 * 60_000);
+    await fixture.whenStable();
+    expect(action('fresh')?.textContent?.trim()).toBe('Retry');
+
+    action('stuck')!.click();
+    const post = http.expectOne('/api/workspaces/demo/documents/stuck/reindex');
+    post.flush(doc('stuck', { status: 'UPLOADED', statusChangedAt: new Date().toISOString() }));
+    await tick();
+    await fixture.whenStable();
+    fixture.componentInstance['now'].set(Date.now());
+    await fixture.whenStable();
+    expect(action('stuck')).toBeNull();
+  });
+
+  describe('deleting a document', () => {
+    afterEach(() => confirmDialog.cleanUp());
+
+    async function clickDelete(id: string) {
+      const page = await open('MEMBER', [doc('keep'), doc('CIN', { filename: 'CIN.pdf', status: 'READY' })]);
+      const row = page.rows().find((r) => r.getAttribute('data-document-id') === id)!;
+      const button = row.querySelector<HTMLButtonElement>('[data-testid="delete-document"]')!;
+      button.focus();
+      button.click();
+      await tick();
+      return { ...page, button };
+    }
+
+    it('asks in a danger dialog naming the file and the consequence', async () => {
+      const { button } = await clickDelete('CIN');
+
+      expect(button.getAttribute('aria-label')).toBe('Delete CIN.pdf');
+      expect(confirmDialog.variant()).toBe('danger');
+      expect(confirmDialog.title()).toBe('Delete CIN.pdf?');
+      expect(confirmDialog.message()).toContain('The file, its text chunks and embeddings will be permanently removed');
+      expect(confirmDialog.accept().textContent?.trim()).toBe('Delete document');
+      confirmDialog.cancel().click();
+    });
+
+    it('deletes after confirmation and removes the row', async () => {
+      const { fixture, rows } = await clickDelete('CIN');
+
+      confirmDialog.accept().click();
+      const del = http.expectOne('/api/workspaces/demo/documents/CIN');
+      expect(del.request.method).toBe('DELETE');
+      del.flush(null);
+      await tick();
+      await fixture.whenStable();
+
+      expect(confirmDialog.element()).toBeNull();
+      expect(rows().map((r) => r.getAttribute('data-document-id'))).toEqual(['keep']);
+    });
+
+    it('keeps the document and returns focus to its button when cancelled', async () => {
+      const { rows, button } = await clickDelete('CIN');
+
+      confirmDialog.cancel().click();
+      await tick();
+
+      http.expectNone('/api/workspaces/demo/documents/CIN');
+      expect(rows().length).toBe(2);
+      expect(document.activeElement).toBe(button);
+    });
+
+    it('shows a failed delete inside the dialog instead of closing it', async () => {
+      const { rows } = await clickDelete('CIN');
+
+      confirmDialog.accept().click();
+      http.expectOne('/api/workspaces/demo/documents/CIN').flush(
+        { detail: 'This action requires the MEMBER role in this workspace; you are VIEWER.' },
+        { status: 403, statusText: 'Forbidden' },
+      );
+      await tick();
+
+      expect(confirmDialog.element()).not.toBeNull();
+      expect(confirmDialog.error()).toContain('requires the MEMBER role');
+      expect(rows().length).toBe(2);
+      confirmDialog.cancel().click();
+    });
+  });
+
+  it('never offers re-indexing to viewers', async () => {
+    const { el } = await open('VIEWER', [
+      doc('ready', { status: 'READY' }),
+      doc('stuck', { status: 'UPLOADED', statusChangedAt: minutesAgo(60) }),
+    ]);
+    expect(el.querySelector('[data-testid="reindex"]')).toBeNull();
   });
 
   it('shows the API reason when an upload is rejected', async () => {

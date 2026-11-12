@@ -9,9 +9,13 @@ context → decision → consequences. ADRs are immutable once accepted; a chang
 | 0002 | [S3-compatible object storage: SeaweedFS instead of MinIO](0002-s3-compatible-object-storage.md) | Accepted |
 | 0003 | [Keycloak for identity, OIDC code flow + PKCE, stateless JWT validation](0003-keycloak-for-identity.md) | Accepted |
 | 0004 | [Workspace roles in the database; tenant isolation enforced in every query](0004-workspace-authorization-and-tenant-isolation.md) | Accepted |
-| 0005 | [Document uploads: content-based validation, S3 storage, live status over SSE](0005-document-upload-and-live-status.md) | Accepted |
+| 0005 | [Document uploads: content-based validation, S3 storage, live status over SSE](0005-document-upload-and-live-status.md) | Accepted (consumer-group note superseded by 0007) |
+| 0006 | [Two backend services: api-service and ingestion-worker](0006-two-backend-services.md) | Accepted |
+| 0007 | [Kafka for ingestion events: transactional outbox, idempotent worker, retries and a dead-letter topic](0007-kafka-ingestion-events.md) | Accepted |
+| 0008 | [Chunks and vectors in PostgreSQL + pgvector; page-aware chunking](0008-pgvector-chunk-storage.md) | Accepted |
+| 0009 | [Model providers behind Spring AI: Ollama locally, a cloud provider in production](0009-model-provider-abstraction.md) | Accepted |
+| 0010 | [Backfill pre-pipeline documents with a migration; let members retry documents stuck in the queue](0010-backfill-and-stuck-document-safety-net.md) | Accepted |
 
-Planned (later phases): two backend services, Kafka for ingestion events, hybrid search with RRF,
-pgvector vs a dedicated vector DB, LLM provider abstraction.
+Planned (later phases): hybrid search with reciprocal rank fusion.
 
 Use [`template.md`](template.md) for new records.
