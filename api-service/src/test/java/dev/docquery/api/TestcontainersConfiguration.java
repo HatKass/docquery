@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
@@ -31,6 +32,13 @@ public class TestcontainersConfiguration {
 	@ServiceConnection
 	PostgreSQLContainer postgresContainer() {
 		return new PostgreSQLContainer(PGVECTOR_IMAGE);
+	}
+
+	/** Same Kafka as compose.yaml (KRaft). No worker runs in api tests: they play its part on the topics. */
+	@Bean
+	@ServiceConnection
+	public KafkaContainer kafkaContainer() {
+		return new KafkaContainer(DockerImageName.parse("apache/kafka:4.3.2"));
 	}
 
 	@Bean

@@ -11,8 +11,11 @@ import org.springframework.util.unit.DataSize;
  * @param eventStreamTimeout how long one live-status stream stays open; the browser then reconnects
  * with a fresh access token, so an expired login or a revoked membership cannot keep a stream alive
  * @param eventStreamHeartbeat interval of keep-alive comments, so idle proxies do not cut the stream
+ * @param requeueAfter a document still queued (UPLOADED) after this long may be re-queued by a member;
+ * the safety net for an ingestion request that was lost or never created
  */
 @ConfigurationProperties("docquery.documents")
 public record DocumentProperties(@DefaultValue("25MB") DataSize maxFileSize,
-		@DefaultValue("15m") Duration eventStreamTimeout, @DefaultValue("20s") Duration eventStreamHeartbeat) {
+		@DefaultValue("15m") Duration eventStreamTimeout, @DefaultValue("20s") Duration eventStreamHeartbeat,
+		@DefaultValue("10m") Duration requeueAfter) {
 }

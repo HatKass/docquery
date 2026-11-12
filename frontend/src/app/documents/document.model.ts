@@ -23,6 +23,8 @@ export interface UploadPolicy {
   maxFileSizeBytes: number;
   allowedExtensions: string[];
   allowedContentTypes: string[];
+  /** A document still queued (UPLOADED) for longer than this may be retried. */
+  requeueAfterSeconds: number;
 }
 
 /** One message from the live document stream. */

@@ -211,6 +211,7 @@ class DocumentApiTests extends ApiIntegrationTest {
 		assertThat(this.api.get(this.viewer, "/api/documents/upload-policy")).hasStatusOk().bodyJson().satisfies(json -> {
 			json.assertThat().extractingPath("$.maxFileSizeBytes").isEqualTo(1024 * 1024);
 			json.assertThat().extractingPath("$.allowedExtensions").asArray().contains("pdf", "docx", "txt", "md");
+			json.assertThat().extractingPath("$.requeueAfterSeconds").isEqualTo(600);
 		});
 	}
 

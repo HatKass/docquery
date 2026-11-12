@@ -100,6 +100,13 @@ class DocumentController {
 			.body(new InputStreamResource(content.stream()));
 	}
 
+	/** Queues the document for indexing again: ready, failed, or queued for too long (see DocumentService#reindex). */
+	@PostMapping(BASE + "/{documentId}/reindex")
+	ResponseEntity<DocumentResponse> reindex(@PathVariable UUID workspaceId, @PathVariable UUID documentId,
+			CurrentUser user) {
+		return ResponseEntity.accepted().body(this.documents.reindex(workspaceId, documentId, user));
+	}
+
 	@DeleteMapping(BASE + "/{documentId}")
 	ResponseEntity<Void> delete(@PathVariable UUID workspaceId, @PathVariable UUID documentId, CurrentUser user) {
 		this.documents.delete(workspaceId, documentId, user);

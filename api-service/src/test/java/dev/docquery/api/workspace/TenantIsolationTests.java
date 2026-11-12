@@ -72,6 +72,7 @@ class TenantIsolationTests extends ApiIntegrationTest {
 				new Endpoint("GET", "/api/workspaces/{workspaceId}/documents/events"),
 				new Endpoint("GET", "/api/workspaces/{workspaceId}/documents/{documentId}"),
 				new Endpoint("GET", "/api/workspaces/{workspaceId}/documents/{documentId}/content"),
+				new Endpoint("POST", "/api/workspaces/{workspaceId}/documents/{documentId}/reindex"),
 				new Endpoint("DELETE", "/api/workspaces/{workspaceId}/documents/{documentId}"));
 	}
 

@@ -28,6 +28,14 @@ class DocumentRepository {
 	record StatusRow(UUID workspaceId, DocumentStatus status) {
 	}
 
+	/** What the ingestion worker needs to find and parse the stored file. */
+	record IngestionSource(UUID id, UUID workspaceId, String storageKey, String contentType, String filename,
+			UUID uploadedBy) {
+	}
+
+	private static final String SELECT_INGESTION_SOURCE = "SELECT d.id, d.workspace_id, d.storage_key, d.content_type, "
+			+ "d.filename, d.uploaded_by FROM document d ";
+
 	private static final String SELECT = """
 			SELECT d.id, d.workspace_id, d.filename, d.content_type, d.size_bytes, d.status, d.failure_reason,
 			       d.page_count, d.chunk_count, d.uploaded_by, u.display_name AS uploaded_by_name,
@@ -87,6 +95,58 @@ class DocumentRepository {
 			.param("sha256", sha256)
 			.query(UUID.class)
 			.optional();
+	}
+
+	Optional<IngestionSource> findIngestionSource(UUID workspaceId, UUID documentId) {
+		return this.jdbc.sql(SELECT_INGESTION_SOURCE + "WHERE d.workspace_id = :workspaceId AND d.id = :id")
+			.param("workspaceId", workspaceId)
+			.param("id", documentId)
+			.query(DocumentRepository::mapIngestionSource)
+			.optional();
+	}
+
+	/**
+	 * Finished documents (READY or FAILED) across all workspaces that need re-indexing for
+	 * {@code currentModel}: any chunk embedded with another model, or, with {@code all}, every one.
+	 * Maintenance only, never reachable from a user request.
+	 */
+	List<IngestionSource> findReindexCandidates(String currentModel, boolean all) {
+		return this.jdbc.sql(SELECT_INGESTION_SOURCE + """
+				 WHERE d.status IN ('READY', 'FAILED')
+				   AND (:all OR EXISTS (SELECT 1 FROM document_chunk c
+				                         WHERE c.workspace_id = d.workspace_id AND c.document_id = d.id
+				                           AND c.embedding_model <> :model))
+				 ORDER BY d.uploaded_at, d.id
+				""")
+			.param("all", all)
+			.param("model", currentModel)
+			.query(DocumentRepository::mapIngestionSource)
+			.list();
+	}
+
+	private static IngestionSource mapIngestionSource(ResultSet rs, int rowNum) throws SQLException {
+		return new IngestionSource(rs.getObject("id", UUID.class), rs.getObject("workspace_id", UUID.class),
+				rs.getString("storage_key"), rs.getString("content_type"), rs.getString("filename"),
+				rs.getObject("uploaded_by", UUID.class));
+	}
+
+	/**
+	 * Restarts the queue timer of a document that has been waiting in UPLOADED for longer than
+	 * {@code olderThanSeconds}. A single conditional update, so two concurrent retries cannot both win.
+	 *
+	 * @return whether the document was stuck (and is now touched)
+	 */
+	boolean touchIfQueuedLongerThan(UUID workspaceId, UUID documentId, long olderThanSeconds) {
+		return this.jdbc.sql("""
+				UPDATE document
+				   SET status_changed_at = now()
+				 WHERE workspace_id = :workspaceId AND id = :id AND status = 'UPLOADED'
+				   AND status_changed_at < now() - make_interval(secs => :seconds)
+				""")
+			.param("workspaceId", workspaceId)
+			.param("id", documentId)
+			.param("seconds", olderThanSeconds)
+			.update() == 1;
 	}
 
 	/** @return the deleted row's storage key, if it existed in this workspace */

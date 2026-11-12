@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { Subscription, firstValueFrom } from 'rxjs';
 import { fileExtension, formatBytes } from '../shared/format';
+import { ConfirmDialog } from '../shared/confirm-dialog';
 import { problemMessage } from '../shared/problem';
 import { WorkspaceContext } from '../workspaces/workspace-context.service';
 import { WorkspaceNav } from '../workspaces/workspace-nav';
@@ -20,6 +21,9 @@ import { DocumentEvents, StreamRejectedError } from './document-events.service';
 import { DocumentStatus, DocumentSummary, IN_PROGRESS_STATUSES, UploadPolicy } from './document.model';
 
 type StreamState = 'connecting' | 'live' | 'reconnecting' | 'offline';
+
+/** How often the page re-checks whether a queued document counts as stuck. */
+const STUCK_CHECK_INTERVAL_MS = 30_000;
 
 /** A file the user picked that is being uploaded or was rejected. */
 interface PendingUpload {
@@ -176,7 +180,26 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
                     </td>
                     <td class="px-4 py-2 text-right">
                       @if (canUpload()) {
-                        <button type="button" class="text-red-700 hover:underline" (click)="remove(d)">Delete</button>
+                        @if (d.status === 'READY' || d.status === 'FAILED' || isStuck(d)) {
+                          <button
+                            type="button"
+                            class="mr-3 text-slate-700 hover:underline"
+                            data-testid="reindex"
+                            [title]="reindexTitle(d)"
+                            (click)="reindex(d)"
+                          >
+                            {{ d.status === 'READY' ? 'Re-index' : 'Retry' }}
+                          </button>
+                        }
+                        <button
+                          type="button"
+                          class="text-red-700 hover:underline"
+                          data-testid="delete-document"
+                          [attr.aria-label]="'Delete ' + d.filename"
+                          (click)="remove(d)"
+                        >
+                          Delete
+                        </button>
                       }
                     </td>
                   </tr>
@@ -202,6 +225,7 @@ export class DocumentLibraryPage {
   private readonly api = inject(DocumentApi);
   private readonly events = inject(DocumentEvents);
   private readonly context = inject(WorkspaceContext);
+  private readonly confirm = inject(ConfirmDialog);
 
   protected readonly documents = signal<DocumentSummary[]>([]);
   protected readonly policy = signal<UploadPolicy | null>(null);
@@ -234,6 +258,9 @@ export class DocumentLibraryPage {
       ],
   );
 
+  /** Current time, refreshed periodically so "stuck in the queue" appears without a reload. */
+  protected readonly now = signal(Date.now());
+
   private stream: Subscription | null = null;
   private uploadKey = 0;
 
@@ -243,7 +270,11 @@ export class DocumentLibraryPage {
       const id = this.workspaceId();
       untracked(() => void this.show(id));
     });
-    inject(DestroyRef).onDestroy(() => this.stream?.unsubscribe());
+    const clock = setInterval(() => this.now.set(Date.now()), STUCK_CHECK_INTERVAL_MS);
+    inject(DestroyRef).onDestroy(() => {
+      this.stream?.unsubscribe();
+      clearInterval(clock);
+    });
   }
 
   private async show(id: string): Promise<void> {
@@ -393,13 +424,27 @@ export class DocumentLibraryPage {
   }
 
   protected async remove(doc: DocumentSummary): Promise<void> {
-    if (!confirm(`Delete “${doc.filename}”? Its file and search index are removed for everyone.`)) {
-      return;
+    this.error.set(null);
+    const deleted = await this.confirm.open({
+      title: `Delete ${doc.filename}?`,
+      message:
+        'The file, its text chunks and embeddings will be permanently removed for everyone in this workspace. ' +
+        'This cannot be undone.',
+      variant: 'danger',
+      confirmLabel: 'Delete document',
+      busyLabel: 'Deleting…',
+      action: () => firstValueFrom(this.api.delete(this.workspaceId(), doc.id)),
+    });
+    if (deleted) {
+      this.documents.update((docs) => docs.filter((d) => d.id !== doc.id));
     }
+  }
+
+  /** Queues the document for processing again; its progress then arrives over the live stream. */
+  protected async reindex(doc: DocumentSummary): Promise<void> {
     this.error.set(null);
     try {
-      await firstValueFrom(this.api.delete(this.workspaceId(), doc.id));
-      this.documents.update((docs) => docs.filter((d) => d.id !== doc.id));
+      this.upsert(await firstValueFrom(this.api.reindex(this.workspaceId(), doc.id)));
     } catch (e) {
       this.error.set(problemMessage(e));
     }
@@ -428,6 +473,25 @@ export class DocumentLibraryPage {
       tab?.close();
       this.error.set(problemMessage(e));
     }
+  }
+
+  /**
+   * Still "Queued" long after it entered the queue: its ingestion request was probably lost (or the
+   * document predates the pipeline). The API enforces the same threshold.
+   */
+  protected isStuck(doc: DocumentSummary): boolean {
+    const after = this.policy()?.requeueAfterSeconds;
+    return doc.status === 'UPLOADED' && !!after && this.now() - Date.parse(doc.statusChangedAt) > after * 1000;
+  }
+
+  protected reindexTitle(doc: DocumentSummary): string {
+    if (doc.status === 'READY') {
+      return 'Rebuild the search index';
+    }
+    if (doc.status === 'FAILED') {
+      return 'Try processing this document again';
+    }
+    return 'Still queued after a long time: queue it again';
   }
 
   protected statusLabel(status: DocumentStatus): string {
