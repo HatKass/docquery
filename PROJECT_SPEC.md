@@ -115,6 +115,7 @@ Phase 9 (Kubernetes & deployment):
 - The production Keycloak realm must NOT include the dev-only docquery-dev-cli client. Use a separate production realm export.
 - The public demo needs demo users, so do not simply set DEMO_SEED_ENABLED=false. Design a safe demo setup: demo users with limited rights, the daily question/upload quotas from 4.5, and a documented way to reset demo data.
 - Document the local Postgres port conflict (POSTGRES_PORT in .env) in the deployment guide too.
+- Live updates (SSE) only reach browsers connected to the replica that consumed the status event (ADR 0007). With more than one api-service replica, fan out status events to all replicas (e.g. per-replica Kafka consumer group or Postgres LISTEN/NOTIFY) and test it.
 
 General:
 - Every new workspace-scoped endpoint must be added to TenantIsolationTests (the test already enforces this).
