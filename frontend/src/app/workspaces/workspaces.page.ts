@@ -10,7 +10,7 @@ import { WorkspaceContext } from './workspace-context.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="mx-auto max-w-3xl space-y-6">
-      <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <h2 class="text-lg font-semibold text-slate-900">Your workspaces</h2>
         @if (!context.loaded()) {
           <p class="mt-4 text-sm text-slate-500">Loading…</p>
@@ -21,8 +21,8 @@ import { WorkspaceContext } from './workspace-context.service';
         } @else {
           <ul class="mt-4 divide-y divide-slate-100" data-testid="workspace-list">
             @for (w of context.workspaces(); track w.id) {
-              <li class="flex items-center justify-between py-3">
-                <a [routerLink]="['/workspaces', w.id]" class="font-medium text-indigo-700 hover:underline">{{ w.name }}</a>
+              <li class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3">
+                <a [routerLink]="['/workspaces', w.id]" class="min-w-0 break-words font-medium text-indigo-700 hover:underline">{{ w.name }}</a>
                 <span class="text-sm text-slate-500">
                   {{ w.role }} · {{ w.memberCount }} {{ w.memberCount === 1 ? 'member' : 'members' }}
                 </span>
@@ -32,7 +32,7 @@ import { WorkspaceContext } from './workspace-context.service';
         }
       </div>
 
-      <form class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm" (submit)="create($event)">
+      <form class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6" (submit)="create($event)">
         <h3 class="font-semibold text-slate-900">Create a workspace</h3>
         <p class="mt-1 text-sm text-slate-500">You become its owner and can add colleagues afterwards.</p>
         <div class="mt-4 flex gap-2">
@@ -40,7 +40,7 @@ import { WorkspaceContext } from './workspace-context.service';
           <input
             id="new-workspace-name"
             data-testid="new-workspace-name"
-            class="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            class="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
             maxlength="100"
             placeholder="e.g. Legal team"
             [value]="name()"

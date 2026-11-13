@@ -16,11 +16,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import dev.docquery.api.support.ApiIntegrationTest;
+import dev.docquery.api.support.ChunkFixtures;
 import dev.docquery.api.support.SampleFiles;
 import dev.docquery.api.support.TestUser;
 
@@ -36,19 +38,28 @@ import dev.docquery.api.support.TestUser;
  */
 class TenantIsolationTests extends ApiIntegrationTest {
 
-	/** {@code body} is a JSON template; {@link #MULTIPART} marks a file upload. */
-	record Endpoint(String method, String pathPattern, String body) {
+	/**
+	 * {@code body} is a JSON template; {@link #MULTIPART} marks a file upload. {@code query} is appended
+	 * to the URI (it is not part of the mapped path pattern).
+	 */
+	record Endpoint(String method, String pathPattern, String body, String query) {
 
 		static final String MULTIPART = "<multipart file>";
 
 		Endpoint(String method, String pathPattern) {
-			this(method, pathPattern, null);
+			this(method, pathPattern, null, null);
 		}
 
-		String uri(UUID workspaceId, UUID memberId, UUID documentId) {
-			return this.pathPattern.replace("{workspaceId}", workspaceId.toString())
+		Endpoint(String method, String pathPattern, String body) {
+			this(method, pathPattern, body, null);
+		}
+
+		String uri(UUID workspaceId, UUID memberId, UUID documentId, UUID conversationId) {
+			String path = this.pathPattern.replace("{workspaceId}", workspaceId.toString())
 				.replace("{userId}", memberId.toString())
-				.replace("{documentId}", documentId.toString());
+				.replace("{documentId}", documentId.toString())
+				.replace("{conversationId}", conversationId.toString());
+			return (this.query != null) ? path + "?" + this.query : path;
 		}
 
 		@Override
@@ -73,12 +84,24 @@ class TenantIsolationTests extends ApiIntegrationTest {
 				new Endpoint("GET", "/api/workspaces/{workspaceId}/documents/{documentId}"),
 				new Endpoint("GET", "/api/workspaces/{workspaceId}/documents/{documentId}/content"),
 				new Endpoint("POST", "/api/workspaces/{workspaceId}/documents/{documentId}/reindex"),
-				new Endpoint("DELETE", "/api/workspaces/{workspaceId}/documents/{documentId}"));
+				new Endpoint("DELETE", "/api/workspaces/{workspaceId}/documents/{documentId}"),
+				new Endpoint("GET", "/api/workspaces/{workspaceId}/search", null, "q=secret"),
+				new Endpoint("GET", "/api/workspaces/{workspaceId}/conversations"),
+				new Endpoint("POST", "/api/workspaces/{workspaceId}/conversations", "{}"),
+				new Endpoint("GET", "/api/workspaces/{workspaceId}/conversations/{conversationId}"),
+				new Endpoint("DELETE", "/api/workspaces/{workspaceId}/conversations/{conversationId}"),
+				new Endpoint("POST", "/api/workspaces/{workspaceId}/conversations/{conversationId}/messages",
+						"{\"question\":\"What does the secret document say?\"}"));
 	}
 
 	/** Endpoints addressing one document: also tried with the outsider's own workspace id. */
 	static Stream<Endpoint> documentEndpoints() {
 		return workspaceScopedEndpoints().filter(e -> e.pathPattern().contains("{documentId}"));
+	}
+
+	/** Endpoints addressing one conversation: also tried with the outsider's own workspace id. */
+	static Stream<Endpoint> conversationEndpoints() {
+		return workspaceScopedEndpoints().filter(e -> e.pathPattern().contains("{conversationId}"));
 	}
 
 	@Autowired
@@ -97,6 +120,11 @@ class TenantIsolationTests extends ApiIntegrationTest {
 
 	UUID documentId;
 
+	UUID conversationId;
+
+	@Autowired
+	JdbcClient jdbc;
+
 	@BeforeEach
 	void twoTenants() {
 		this.owner = TestUser.random("tenant-a-owner");
@@ -107,6 +135,10 @@ class TenantIsolationTests extends ApiIntegrationTest {
 		this.outsiderWorkspaceId = this.api.createWorkspace(this.outsider, "Tenant B");
 		this.documentId = this.api.uploadDocument(this.owner, this.workspaceId, "tenant-a-secret.pdf",
 				SampleFiles.pdf());
+		new ChunkFixtures(this.jdbc).index(this.workspaceId, this.documentId, 1,
+				"The secret document says the merger closes in March.");
+		this.conversationId = this.api.createConversation(this.owner, this.workspaceId);
+		this.api.askAndRead(this.owner, this.workspaceId, this.conversationId, "What does the secret document say?");
 	}
 
 	@ParameterizedTest(name = "{0}")
@@ -135,6 +167,40 @@ class TenantIsolationTests extends ApiIntegrationTest {
 			.extractingPath("$.type")
 			.isEqualTo("urn:docquery:problem:document-not-found");
 		assertTenantAUnchanged();
+	}
+
+	@ParameterizedTest(name = "{0}")
+	@MethodSource("conversationEndpoints")
+	void foreignConversationIdThroughOwnWorkspaceGets404(Endpoint endpoint) {
+		MvcTestResult result = call(endpoint, this.outsider, this.outsiderWorkspaceId);
+
+		assertThat(result).hasStatus(HttpStatus.NOT_FOUND)
+			.bodyJson()
+			.extractingPath("$.type")
+			.isEqualTo("urn:docquery:problem:conversation-not-found");
+		assertTenantAUnchanged();
+	}
+
+	/** Even with a perfectly matching question, search and chat see only the caller's own workspace. */
+	@Test
+	void outsiderSearchAndChatNeverSeeForeignChunks() {
+		assertThat(this.api.get(this.outsider,
+				"/api/workspaces/" + this.outsiderWorkspaceId + "/search?q=secret%20document%20merger"))
+			.hasStatusOk()
+			.bodyJson()
+			.extractingPath("$.length()")
+			.isEqualTo(0);
+		UUID own = this.api.createConversation(this.outsider, this.outsiderWorkspaceId);
+		var events = this.api.askAndRead(this.outsider, this.outsiderWorkspaceId, own,
+				"What does the secret document say?");
+		assertThat(events.getLast().data().at("/answer/content").asString())
+			.isEqualTo("I couldn't find this in your documents.");
+		assertThat(events.getLast().data().at("/answer/citations").size()).isZero();
+		assertThat(this.api.get(this.outsider, "/api/workspaces/" + this.outsiderWorkspaceId + "/conversations"))
+			.bodyJson()
+			.extractingPath("$[*].id")
+			.asArray()
+			.containsExactly(own.toString());
 	}
 
 	@Test
@@ -198,7 +264,7 @@ class TenantIsolationTests extends ApiIntegrationTest {
 	}
 
 	private MvcTestResult call(Endpoint endpoint, TestUser caller, UUID inWorkspace) {
-		String uri = endpoint.uri(inWorkspace, this.ownerId, this.documentId);
+		String uri = endpoint.uri(inWorkspace, this.ownerId, this.documentId, this.conversationId);
 		if (Endpoint.MULTIPART.equals(endpoint.body())) {
 			return this.mvc.post()
 				.uri(uri)
@@ -230,6 +296,12 @@ class TenantIsolationTests extends ApiIntegrationTest {
 			.extractingPath("$[*].id")
 			.asArray()
 			.containsExactly(this.documentId.toString());
+		assertThat(this.api.get(this.owner, "/api/workspaces/" + this.workspaceId + "/conversations/"
+				+ this.conversationId))
+			.hasStatusOk()
+			.bodyJson()
+			.extractingPath("$.messages.length()")
+			.isEqualTo(2);
 	}
 
 }

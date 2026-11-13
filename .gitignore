@@ -15,3 +15,6 @@ target/
 node_modules/
 dist/
 coverage/
+
+# Local Claude Code / editor tooling (launch configs, settings)
+.claude/

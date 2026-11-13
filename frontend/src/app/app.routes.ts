@@ -31,6 +31,12 @@ export const routes: Routes = [
     title: 'Documents · DocQuery',
   },
   {
+    path: 'workspaces/:workspaceId/chat',
+    canActivate: [authGuard],
+    loadComponent: () => import('./chat/chat.page').then((m) => m.ChatPage),
+    title: 'Ask · DocQuery',
+  },
+  {
     path: 'workspaces/:workspaceId/members',
     canActivate: [authGuard],
     loadComponent: () => import('./workspaces/workspace-detail.page').then((m) => m.WorkspaceDetailPage),

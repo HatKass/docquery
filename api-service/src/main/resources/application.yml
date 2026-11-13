@@ -48,6 +48,65 @@ spring:
         max.block.ms: 10000
     listener:
       ack-mode: record
+  # --- Chat and query embeddings (Spring AI). The providers are configuration, not code. -----
+  ai:
+    model:
+      # ollama (local, default) | openai | anthropic. Exactly one chat model is created.
+      chat: ${CHAT_PROVIDER:ollama}
+      # Must be the provider and model the ingestion worker embeds chunks with (ollama | openai).
+      embedding: ${EMBEDDING_PROVIDER:ollama}
+      image: none
+      audio:
+        speech: none
+        transcription: none
+      moderation: none
+    ollama:
+      # Native Ollama on the host. From a container: http://host.docker.internal:11434
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        # llama3.2:3b fits a 4 GB GPU; larger models (qwen2.5:7b, llama3.1:8b) cite more reliably.
+        model: ${OLLAMA_CHAT_MODEL:llama3.2:3b}
+        # Low temperature: answers should restate the sources, not be creative.
+        temperature: ${CHAT_TEMPERATURE:0.1}
+        # Context window: 5 sources (~1,500 tokens) + rules + recent history fit; 4096 keeps llama3.2:3b fully on a 4 GB GPU.
+        num-ctx: ${OLLAMA_CHAT_NUM_CTX:4096}
+        num-predict: ${CHAT_MAX_TOKENS:1024}
+      embedding:
+        model: ${OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
+      init:
+        # Models are pulled by you (ollama pull ...), never silently at startup.
+        pull-model-strategy: never
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        model: ${OPENAI_CHAT_MODEL:gpt-4.1-mini}
+        temperature: ${CHAT_TEMPERATURE:0.1}
+        max-tokens: ${CHAT_MAX_TOKENS:1024}
+      embedding:
+        model: ${OPENAI_EMBEDDING_MODEL:text-embedding-3-small}
+        dimensions: ${OPENAI_EMBEDDING_DIMENSIONS:768}
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        model: ${ANTHROPIC_CHAT_MODEL:claude-haiku-5-5}
+        temperature: ${CHAT_TEMPERATURE:0.1}
+        max-tokens: ${CHAT_MAX_TOKENS:1024}
+    retry:
+      # A user is waiting: retry briefly, then report the outage instead of hanging.
+      max-attempts: 2
+      backoff:
+        initial-interval: 1s
+        multiplier: 2
+        max-interval: 3s
+  http:
+    clients:
+      imperative:
+        # Plain HTTP/1.1 (HttpURLConnection), as in the worker: the JDK HttpClient's h2c upgrade
+        # attempt on plain-HTTP POSTs can stall requests to Ollama.
+        factory: simple
+      connect-timeout: 5s
+      # Generous: Ollama loads a model into memory on its first request.
+      read-timeout: ${CHAT_READ_TIMEOUT:120s}
   security:
     oauth2:
       resourceserver:
@@ -119,6 +178,30 @@ docquery:
       poll-interval: ${OUTBOX_POLL_INTERVAL:500ms}
       batch-size: 50
       send-timeout: 10s
+  retrieval:
+    # Resolves to the model of the selected embedding provider; must match the ingestion worker.
+    embedding-model: ${spring.ai.${spring.ai.model.embedding}.embedding.model}
+    # nomic-embed-text expects this task prefix for queries; set EMBEDDING_QUERY_PREFIX= (empty) for other models.
+    query-prefix: "${EMBEDDING_QUERY_PREFIX:search_query: }"
+    vector-candidates: 20
+    keyword-candidates: 20
+    max-sources: ${RETRIEVAL_MAX_SOURCES:5}
+    # Vector matches below this cosine similarity are treated as unrelated (nomic-embed-text: related ≈ 0.7, unrelated ≈ 0.5).
+    min-similarity: ${RETRIEVAL_MIN_SIMILARITY:0.6}
+    rrf-k: 60
+    # A question about one document (most sources from it: summaries, assessments) gets up to this
+    # many more of that document's passages. 0 disables it.
+    focus-extra-chunks: ${RETRIEVAL_FOCUS_EXTRA_CHUNKS:4}
+    focus-min-share: 0.6
+    # Total source text per answer (~4 characters per token): with rules, history and the answer it
+    # stays inside OLLAMA_CHAT_NUM_CTX=4096. Raise both together for larger models.
+    max-context-characters: ${RETRIEVAL_MAX_CONTEXT_CHARACTERS:8000}
+  chat:
+    # Recorded with every answer.
+    model: ${spring.ai.${spring.ai.model.chat}.chat.model}
+    history-messages: ${CHAT_HISTORY_MESSAGES:6}
+    max-question-length: 2000
+    stream-timeout: ${CHAT_STREAM_TIMEOUT:5m}
   reindex:
     # One-off maintenance command, see ReindexCommand (never set in normal operation).
     run: false

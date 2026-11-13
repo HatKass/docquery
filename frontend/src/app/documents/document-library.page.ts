@@ -18,6 +18,7 @@ import { WorkspaceContext } from '../workspaces/workspace-context.service';
 import { WorkspaceNav } from '../workspaces/workspace-nav';
 import { DocumentApi } from './document-api.service';
 import { DocumentEvents, StreamRejectedError } from './document-events.service';
+import { DocumentOpener } from './document-opener.service';
 import { DocumentStatus, DocumentSummary, IN_PROGRESS_STATUSES, UploadPolicy } from './document.model';
 
 type StreamState = 'connecting' | 'live' | 'reconnecting' | 'offline';
@@ -61,8 +62,8 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
       <section class="mx-auto max-w-5xl space-y-6">
         <div>
           <div class="flex items-end justify-between gap-4">
-            <h2 class="text-xl font-semibold text-slate-900" data-testid="workspace-name">{{ ws.name }}</h2>
-            <span class="flex items-center gap-2 text-xs text-slate-500" data-testid="stream-state">
+            <h2 class="min-w-0 truncate text-xl font-semibold text-slate-900" data-testid="workspace-name">{{ ws.name }}</h2>
+            <span class="flex shrink-0 items-center gap-2 text-xs text-slate-500" data-testid="stream-state">
               <span class="h-2 w-2 rounded-full" [class]="streamDotClass()"></span>
               {{ streamLabel() }}
             </span>
@@ -72,7 +73,7 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
 
         @if (canUpload()) {
           <div
-            class="rounded-xl border-2 border-dashed bg-white p-6 text-center transition-colors"
+            class="rounded-xl border-2 border-dashed bg-white p-4 text-center transition-colors sm:p-6"
             [class]="dragging() ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300'"
             data-testid="upload-zone"
             (dragover)="onDragOver($event)"
@@ -80,8 +81,10 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
             (drop)="onDrop($event)"
           >
             <p class="text-sm text-slate-700">
-              Drag files here, or
-              <label for="file-input" class="cursor-pointer font-medium text-indigo-700 hover:underline">browse</label>
+              <span class="hidden sm:inline">Drag files here, or </span>
+              <label for="file-input" class="cursor-pointer font-medium text-indigo-700 hover:underline"
+                ><span class="sm:hidden">Choose files to upload</span><span class="hidden sm:inline">browse</span></label
+              >
             </p>
             <input
               id="file-input"
@@ -133,20 +136,22 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
           } @else {
             <table class="w-full text-left text-sm" data-testid="document-table">
               <thead class="border-b border-slate-200 text-xs uppercase text-slate-500">
+                <!-- Phones show Name + Actions (status and details fold into the name cell); tablets add
+                     Status; desktops (lg) show every column. -->
                 <tr>
-                  <th class="px-4 py-2">Name</th>
-                  <th class="px-2 py-2">Status</th>
-                  <th class="px-2 py-2 text-right">Pages</th>
-                  <th class="px-2 py-2 text-right">Chunks</th>
-                  <th class="px-2 py-2 text-right">Size</th>
-                  <th class="px-2 py-2">Uploaded</th>
-                  <th class="px-4 py-2"><span class="sr-only">Actions</span></th>
+                  <th class="px-3 py-2 sm:px-4">Name</th>
+                  <th class="hidden px-2 py-2 sm:table-cell">Status</th>
+                  <th class="hidden px-2 py-2 text-right lg:table-cell">Pages</th>
+                  <th class="hidden px-2 py-2 text-right lg:table-cell">Chunks</th>
+                  <th class="hidden px-2 py-2 text-right lg:table-cell">Size</th>
+                  <th class="hidden px-2 py-2 lg:table-cell">Uploaded</th>
+                  <th class="px-3 py-2 sm:px-4"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
                 @for (d of documents(); track d.id) {
                   <tr [attr.data-document-id]="d.id">
-                    <td class="max-w-xs px-4 py-2">
+                    <td class="w-full max-w-0 px-3 py-2 sm:px-4 lg:w-auto lg:max-w-xs">
                       <button
                         type="button"
                         class="block max-w-full truncate text-left font-medium text-indigo-700 hover:underline"
@@ -155,11 +160,34 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
                       >
                         {{ d.filename }}
                       </button>
+                      <!-- Phones and tablets: the hidden columns, in one line under the name. -->
+                      <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 lg:hidden">
+                        <span class="sm:hidden">
+                          <span
+                            class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 font-medium"
+                            [class]="statusClass(d.status)"
+                            data-testid="status-compact"
+                          >
+                            @if (inProgress(d.status)) {
+                              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-current"></span>
+                            }
+                            {{ statusLabel(d.status) }}
+                          </span>
+                        </span>
+                        <span class="whitespace-nowrap">{{ size(d.sizeBytes) }}</span>
+                        @if (d.pageCount !== null) {
+                          <span class="whitespace-nowrap">· {{ d.pageCount }} {{ d.pageCount === 1 ? 'page' : 'pages' }}</span>
+                        }
+                        @if (d.chunkCount !== null) {
+                          <span class="whitespace-nowrap">· {{ d.chunkCount }} {{ d.chunkCount === 1 ? 'chunk' : 'chunks' }}</span>
+                        }
+                        <span class="whitespace-nowrap">· {{ d.uploadedAt | date: 'MMM d, HH:mm' }}</span>
+                      </div>
                       @if (d.status === 'FAILED' && d.failureReason) {
                         <p class="mt-0.5 text-xs text-red-700" data-testid="failure-reason">{{ d.failureReason }}</p>
                       }
                     </td>
-                    <td class="px-2 py-2">
+                    <td class="hidden px-2 py-2 sm:table-cell">
                       <span
                         class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
                         [class]="statusClass(d.status)"
@@ -171,19 +199,21 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
                         {{ statusLabel(d.status) }}
                       </span>
                     </td>
-                    <td class="px-2 py-2 text-right tabular-nums text-slate-700">{{ d.pageCount ?? '—' }}</td>
-                    <td class="px-2 py-2 text-right tabular-nums text-slate-700">{{ d.chunkCount ?? '—' }}</td>
-                    <td class="whitespace-nowrap px-2 py-2 text-right tabular-nums text-slate-700">{{ size(d.sizeBytes) }}</td>
-                    <td class="whitespace-nowrap px-2 py-2 text-slate-600">
+                    <td class="hidden px-2 py-2 text-right tabular-nums text-slate-700 lg:table-cell">{{ d.pageCount ?? '—' }}</td>
+                    <td class="hidden px-2 py-2 text-right tabular-nums text-slate-700 lg:table-cell">{{ d.chunkCount ?? '—' }}</td>
+                    <td class="hidden whitespace-nowrap px-2 py-2 text-right tabular-nums text-slate-700 lg:table-cell">{{ size(d.sizeBytes) }}</td>
+                    <td class="hidden whitespace-nowrap px-2 py-2 text-slate-600 lg:table-cell">
                       {{ d.uploadedAt | date: 'MMM d, y, HH:mm' }}
                       <span class="block text-xs text-slate-500">{{ d.uploadedByName ?? 'Former member' }}</span>
                     </td>
-                    <td class="px-4 py-2 text-right">
+                    <td class="px-3 py-2 text-right sm:px-4">
                       @if (canUpload()) {
+                        <!-- Stacked on phones (bigger tap targets), side by side from sm up. -->
+                        <div class="flex flex-col items-end gap-2 sm:flex-row sm:justify-end sm:gap-3">
                         @if (d.status === 'READY' || d.status === 'FAILED' || isStuck(d)) {
                           <button
                             type="button"
-                            class="mr-3 text-slate-700 hover:underline"
+                            class="whitespace-nowrap text-slate-700 hover:underline"
                             data-testid="reindex"
                             [title]="reindexTitle(d)"
                             (click)="reindex(d)"
@@ -200,6 +230,7 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
                         >
                           Delete
                         </button>
+                        </div>
                       }
                     </td>
                   </tr>
@@ -226,6 +257,7 @@ export class DocumentLibraryPage {
   private readonly events = inject(DocumentEvents);
   private readonly context = inject(WorkspaceContext);
   private readonly confirm = inject(ConfirmDialog);
+  private readonly opener = inject(DocumentOpener);
 
   protected readonly documents = signal<DocumentSummary[]>([]);
   protected readonly policy = signal<UploadPolicy | null>(null);
@@ -453,24 +485,9 @@ export class DocumentLibraryPage {
   /** Opens PDFs and text in a new tab (the browser's viewer); Word files download. */
   protected async open(doc: DocumentSummary): Promise<void> {
     this.error.set(null);
-    const viewable = doc.contentType === 'application/pdf' || doc.contentType.startsWith('text/');
-    // Open the tab synchronously, inside the click, so popup blockers allow it.
-    const tab = viewable ? window.open('', '_blank') : null;
     try {
-      const blob = await firstValueFrom(this.api.content(this.workspaceId(), doc.id));
-      const type = doc.contentType.startsWith('text/') ? 'text/plain;charset=utf-8' : doc.contentType;
-      const url = URL.createObjectURL(new Blob([blob], { type }));
-      if (tab) {
-        tab.location.href = url;
-      } else {
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = doc.filename;
-        link.click();
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await this.opener.open(this.workspaceId(), doc);
     } catch (e) {
-      tab?.close();
       this.error.set(problemMessage(e));
     }
   }

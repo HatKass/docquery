@@ -8,13 +8,13 @@ import { WorkspaceContext } from './workspace-context.service';
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="flex items-center gap-2">
+    <div class="flex min-w-0 items-center gap-2">
       <label for="workspace-switcher" class="sr-only">Current workspace</label>
       @if (context.workspaces().length) {
         <select
           id="workspace-switcher"
           data-testid="workspace-switcher"
-          class="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
+          class="min-w-0 flex-1 truncate rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 sm:max-w-xs sm:flex-none"
           [value]="context.current()?.id ?? ''"
           (change)="switchTo($any($event.target).value)"
         >
@@ -25,7 +25,7 @@ import { WorkspaceContext } from './workspace-context.service';
       } @else {
         <span class="text-sm text-slate-500">No workspace yet</span>
       }
-      <a routerLink="/workspaces" class="text-sm text-indigo-700 hover:underline">Manage</a>
+      <a routerLink="/workspaces" class="shrink-0 text-sm text-indigo-700 hover:underline">Manage</a>
     </div>
   `,
 })

@@ -204,6 +204,21 @@ services:
       S3_BUCKET: ${S3_BUCKET:-docquery-documents}
       DOCUMENT_MAX_FILE_SIZE: ${DOCUMENT_MAX_FILE_SIZE:-25MB}
       DOCUMENT_MAX_REQUEST_SIZE: ${DOCUMENT_MAX_REQUEST_SIZE:-26MB}
+      # RAG chat (Phase 5): query embeddings must use the worker's embedding provider and model.
+      CHAT_PROVIDER: ${CHAT_PROVIDER:-ollama}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      EMBEDDING_QUERY_PREFIX: "${EMBEDDING_QUERY_PREFIX-search_query: }"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4.1-mini}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_CHAT_MODEL: ${ANTHROPIC_CHAT_MODEL:-claude-haiku-5-5}
+    # Docker Desktop resolves host.docker.internal by itself; this makes it work on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:

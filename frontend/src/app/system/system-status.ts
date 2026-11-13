@@ -5,7 +5,7 @@ import { SystemStatusService } from './system-status.service';
   selector: 'app-system-status',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="mx-auto max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+    <section class="mx-auto max-w-2xl rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-slate-900">System status</h2>
         <button

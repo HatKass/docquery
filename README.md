@@ -4,7 +4,7 @@
 
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)](.github/workflows/ci.yml)
 
-**Status: Phase 4 (Ingestion pipeline) complete.** Keycloak login (OIDC + PKCE), multi-workspace roles with tenant-isolation tests, a document library with content-validated uploads and live status (SSE), and an event-driven ingestion pipeline: Kafka (transactional outbox, idempotent worker, retries, dead-letter topic) → Apache Tika extraction with page numbers → overlapping chunks → batched embeddings (Ollama locally) → pgvector. Features land phase by phase (see [Roadmap](#roadmap)).
+**Status: Phase 5 (RAG chat) complete.** Keycloak login (OIDC + PKCE), multi-workspace roles with tenant-isolation tests, a document library with content-validated uploads and live status (SSE), an event-driven ingestion pipeline (Kafka outbox, idempotent worker, retries, dead-letter topic → Tika → chunks → embeddings → pgvector), and **grounded chat**: hybrid retrieval (pgvector + full-text search, reciprocal rank fusion), answers streamed word by word with citations to document and page, a citation viewer, and prompt-injection hygiene with tests. Features land phase by phase (see [Roadmap](#roadmap)).
 
 ## Architecture
 
@@ -39,7 +39,7 @@ installed natively (uses your GPU) with the embedding model pulled:
 
 ```bash
 ollama pull nomic-embed-text   # embeddings (768 dimensions, ~270 MB), needed from Phase 4
-ollama pull llama3.2:3b        # chat model for Phase 5 (fits a 4 GB GPU); qwen2.5:7b answers better
+ollama pull llama3.2:3b        # chat model (fits a 4 GB GPU); qwen2.5:7b answers better; OLLAMA_CHAT_MODEL picks it
 ```
 
 ```bash
@@ -88,8 +88,8 @@ Sign in at http://localhost:4200 with a demo account. All demo users except `out
 | User | Role in Demo workspace | Can |
 |------|------------------------|-----|
 | `owner` | OWNER | rename/delete the workspace, add/remove members, change roles |
-| `member` | MEMBER | read; upload and delete documents; ask questions (Phase 5) |
-| `viewer` | VIEWER | read and open documents; ask questions (Phase 5) |
+| `member` | MEMBER | read; upload and delete documents; ask questions |
+| `viewer` | VIEWER | read and open documents; ask questions |
 | `outsider` | none | shows tenant isolation: sees only their own workspaces |
 
 Anyone can create a workspace and becomes its owner. Members are added by username or e-mail once they
@@ -191,10 +191,74 @@ Add `--docquery.reindex.all=true` to re-index every finished document. See ADRs
 [0006](docs/adr/0006-two-backend-services.md), [0007](docs/adr/0007-kafka-ingestion-events.md),
 [0008](docs/adr/0008-pgvector-chunk-storage.md), [0009](docs/adr/0009-model-provider-abstraction.md).
 
+## RAG chat
+
+Open a workspace and choose **Ask**. Questions are answered only from the workspace's documents.
+The answer streams in word by word; `[n]` markers become chips, and clicking one opens the **citation
+viewer**: document name, page, the exact passage the answer used, and a button that opens the PDF
+**at that page**. If nothing relevant is found, the answer is "I couldn't find this in your
+documents." (without calling the model). Conversations are private to each user; any member, including
+viewers, can ask.
+
+```mermaid
+sequenceDiagram
+  participant UI as Angular
+  participant API as api-service
+  participant DB as Postgres (pgvector + FTS)
+  participant LLM as Chat model
+  UI->>API: POST /conversations/{id}/messages (fetch, SSE response)
+  API->>DB: store question
+  API-->>UI: event: start
+  API->>DB: vector top 20 + full-text top 20 (workspace-filtered)
+  API->>API: reciprocal rank fusion → 5 sources
+  API->>LLM: system rules + <sources> (untrusted data) + question + history
+  LLM-->>API: tokens
+  API-->>UI: event: delta … delta
+  API->>API: keep only valid [n] citations, build them from the chunks
+  API->>DB: store answer, citations, model, token usage
+  API-->>UI: event: done
+```
+
+- **Hybrid retrieval** ([ADR 0011](docs/adr/0011-hybrid-retrieval-with-reciprocal-rank-fusion.md)):
+  pgvector (HNSW, iterative scan) + PostgreSQL full-text search (`english` stemming, OR-ed terms),
+  merged by reciprocal rank fusion; vector hits under `RETRIEVAL_MIN_SIMILARITY` (0.6) are ignored.
+  Falls back to full-text only if the embedding provider is down.
+- **Follow-ups and focused questions**: follow-up questions ("what about this CV?") are rewritten into a
+  standalone search query from the conversation (stored with the answer as `search_query`). Questions
+  about one document (summaries, assessments) get more of that document's passages. Source text is
+  capped to fit the model's context.
+- **Answers**: facts are cited, never attributed to a person or entity the passage doesn't name.
+  Assessments are split into **Facts / Assessment / Missing information**. Answers are always in the
+  question's language. A safe Markdown subset (lists, bold, code) is rendered without HTML.
+- **Grounding and prompt-injection hygiene** ([ADR 0012](docs/adr/0012-grounded-answers-and-prompt-injection-hygiene.md)):
+  rules only in the system message; document text inside delimited, neutralized `<source>` blocks;
+  citations validated and built server-side; answers rendered as plain text; no tools.
+- **Models**: `CHAT_PROVIDER=ollama` (default, `OLLAMA_CHAT_MODEL=llama3.2:3b`), `openai` or
+  `anthropic` (API key in the environment). Model and token usage are stored with every answer.
+- **Stop** cancels generation on the server; the partial answer is kept and marked as failed.
+
+| Method | Path | Minimum role |
+|--------|------|--------------|
+| GET | `/workspaces/{id}/search?q=…&limit=10` (retrieval only, with vector/keyword ranks) | VIEWER |
+| GET, POST | `/workspaces/{id}/conversations` (your own) | VIEWER |
+| GET, DELETE | `/workspaces/{id}/conversations/{conversationId}` (your own) | VIEWER |
+| POST | `/workspaces/{id}/conversations/{conversationId}/messages` `{"question": "…"}` → SSE | VIEWER |
+
+```bash
+W=00000000-0000-4000-8000-000000000001   # Demo workspace
+C=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/workspaces/$W/conversations | jq -r .id)
+curl -N -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"   -d '{"question":"How many vacation days do employees get?"}'   http://localhost:8080/api/workspaces/$W/conversations/$C/messages
+```
+
+> **Small local model, honest caveat:** llama3.2:3b is fast on a 4 GB GPU but sometimes misses a
+> fact that *is* in the cited passage, or cites loosely. The citation viewer always shows the real
+> passage. `OLLAMA_CHAT_MODEL=qwen2.5:7b` (or a cloud provider) follows the rules better. The first
+> question after a while is slower: Ollama loads the model (and unloads it after 5 idle minutes).
+
 ## Tests
 
 ```bash
-cd api-service && ./mvnw verify        # Testcontainers: pgvector Postgres, Kafka, SeaweedFS (S3) and Keycloak with the committed realm
+cd api-service && ./mvnw verify        # Testcontainers: pgvector Postgres, Kafka, SeaweedFS (S3), Keycloak; stub chat + embedding models (no Ollama needed)
 cd ingestion-worker && ./mvnw verify   # Testcontainers: Kafka, pgvector Postgres (api-service migrations), SeaweedFS; stub embedding model
 cd frontend && npm run test:ci         # Vitest
 ```
@@ -211,6 +275,8 @@ cd frontend && npm run test:ci         # Vitest
 - [ADR 0008](docs/adr/0008-pgvector-chunk-storage.md): **pgvector in Postgres** (own schema, composite tenant foreign key, HNSW), page-aware chunking with overlap.
 - [ADR 0009](docs/adr/0009-model-provider-abstraction.md): **Spring AI provider abstraction**: native Ollama locally, OpenAI by configuration; deterministic stub in tests.
 - [ADR 0010](docs/adr/0010-backfill-and-stuck-document-safety-net.md): **Backfill as a one-off Flyway migration**; members can re-queue documents stuck in the queue.
+- [ADR 0011](docs/adr/0011-hybrid-retrieval-with-reciprocal-rank-fusion.md): **Hybrid retrieval**: pgvector + Postgres full-text search, merged by reciprocal rank fusion, with a relevance floor that skips the model when nothing matches.
+- [ADR 0012](docs/adr/0012-grounded-answers-and-prompt-injection-hygiene.md): **Grounded answers over SSE**; documents are untrusted data in delimited blocks; citations validated and built server-side.
 
 ## Roadmap
 
@@ -218,7 +284,7 @@ cd frontend && npm run test:ci         # Vitest
 2. ✅ Auth & workspaces
 3. ✅ Documents
 4. ✅ Ingestion pipeline
-5. RAG chat
+5. ✅ RAG chat
 6. Usage & admin
 7. Observability
 8. Testing & evaluation
