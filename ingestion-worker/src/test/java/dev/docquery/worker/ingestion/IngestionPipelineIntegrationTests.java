@@ -12,12 +12,20 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import io.opentelemetry.sdk.trace.data.SpanData;
+
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.header.Header;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -40,10 +48,11 @@ import dev.docquery.worker.support.TopicRecorder;
 /**
  * The whole pipeline against real Kafka, pgvector Postgres (api-service's schema) and S3:
  * events in on {@code document.uploaded}, statuses out on {@code document.status}, chunks in the
- * database, failures on the dead-letter topic.
+ * database, failures on the dead-letter topic. Tracing is on (in-memory exporter only), as in production.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
+@AutoConfigureTracing
 class IngestionPipelineIntegrationTests {
 
 	static final String UPLOADED = "document.uploaded";
@@ -69,6 +78,15 @@ class IngestionPipelineIntegrationTests {
 
 	@Autowired
 	StubEmbeddingModel embeddingModel;
+
+	@Autowired
+	Tracer tracer;
+
+	@Autowired
+	InMemorySpanExporter spans;
+
+	@Autowired
+	MeterRegistry meters;
 
 	TopicRecorder recorder;
 
@@ -266,6 +284,43 @@ class IngestionPipelineIntegrationTests {
 	}
 
 	@Test
+	void theDocumentsTraceContinuesThroughEveryStepAndStatusEvent() {
+		double readyBefore = readyCount();
+		DocumentUploaded event = store(TestDocuments.text("Traced through the pipeline."), TextExtractor.TEXT);
+		// Plays api-service's outbox relay: the record is sent inside the upload's trace.
+		Span upload = this.tracer.nextSpan().name("upload (test)").start();
+		try (Tracer.SpanInScope scope = this.tracer.withSpan(upload)) {
+			send(event);
+		}
+		finally {
+			upload.end();
+		}
+		String traceId = upload.context().traceId();
+
+		List<ConsumerRecord<String, String>> statuses = this.recorder.await(STATUS, key(event),
+				records -> records.stream().anyMatch(r -> r.value().contains("\"READY\"")));
+
+		// Every status event carries the trace back to api-service.
+		assertThat(statuses).hasSize(4).allSatisfy(record -> {
+			Header traceparent = record.headers().lastHeader("traceparent");
+			assertThat(traceparent).isNotNull();
+			assertThat(new String(traceparent.value(), StandardCharsets.UTF_8)).startsWith("00-" + traceId + "-");
+		});
+		Awaitility.await()
+			.atMost(Duration.ofSeconds(10))
+			.until(() -> spanNames(traceId).containsAll(List.of("document.uploaded process", "ingestion extract",
+					"ingestion chunk", "ingestion embed", "ingestion index")));
+		List<SpanData> trace = this.spans.getFinishedSpanItems().stream().filter(s -> s.getTraceId().equals(traceId)).toList();
+		SpanData process = trace.stream().filter(s -> s.getName().equals("document.uploaded process")).findFirst().orElseThrow();
+		assertThat(trace).filteredOn(s -> s.getName().startsWith("ingestion "))
+			.allSatisfy(step -> assertThat(step.getParentSpanId()).isEqualTo(process.getSpanId()))
+			.allSatisfy(step -> assertThat(step.getAttributes().asMap().toString())
+				.contains("docquery.document.id=" + event.documentId()));
+		assertThat(readyCount()).isEqualTo(readyBefore + 1);
+		assertThat(this.meters.get("docquery.ingestion.step").tag("step", "embed").timer().count()).isPositive();
+	}
+
+	@Test
 	void schemaRejectsAChunkClaimingAnotherWorkspace() {
 		DocumentUploaded event = upload(TestDocuments.text("Tenant A data."), TextExtractor.TEXT);
 		awaitStatus(event, "READY");
@@ -281,6 +336,13 @@ class IngestionPipelineIntegrationTests {
 	// --- helpers ---
 
 	private DocumentUploaded upload(byte[] content, String contentType) {
+		DocumentUploaded event = store(content, contentType);
+		send(event);
+		return event;
+	}
+
+	/** Stores the file and the document row, and returns the event announcing them (not sent yet). */
+	private DocumentUploaded store(byte[] content, String contentType) {
 		UUID documentId = UUID.randomUUID();
 		String key = "workspaces/" + this.workspaceId + "/documents/" + UUID.randomUUID();
 		this.s3.putObject(r -> r.bucket(TestcontainersConfiguration.TEST_BUCKET).key(key), RequestBody.fromBytes(content));
@@ -300,8 +362,20 @@ class IngestionPipelineIntegrationTests {
 			.update();
 		DocumentUploaded event = new DocumentUploaded(UUID.randomUUID(), documentId, this.workspaceId, key,
 				contentType, "test-file", this.userId, "UPLOAD", Instant.now());
-		send(event);
 		return event;
+	}
+
+	private List<String> spanNames(String traceId) {
+		return this.spans.getFinishedSpanItems()
+			.stream()
+			.filter(s -> s.getTraceId().equals(traceId))
+			.map(SpanData::getName)
+			.toList();
+	}
+
+	private double readyCount() {
+		var counter = this.meters.find("docquery.ingestion.documents").tag("outcome", "ready").counter();
+		return (counter != null) ? counter.count() : 0;
 	}
 
 	private void send(DocumentUploaded event) {

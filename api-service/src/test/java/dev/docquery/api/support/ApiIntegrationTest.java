@@ -2,6 +2,8 @@ package dev.docquery.api.support;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
+import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
@@ -13,10 +15,15 @@ import dev.docquery.api.TestcontainersConfiguration;
 /**
  * Full application context against a real pgvector Postgres (Testcontainers). All subclasses share
  * one cached context and one database; tests isolate themselves by using fresh random users.
+ * <p>
+ * Tracing and the Prometheus registry are on, as in production (export goes to an in-memory span
+ * exporter only, see src/test/resources/application.properties).
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 @AutoConfigureMockMvc
+@AutoConfigureTracing
+@AutoConfigureMetrics
 public abstract class ApiIntegrationTest {
 
 	@Autowired

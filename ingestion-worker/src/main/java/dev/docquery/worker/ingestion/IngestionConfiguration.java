@@ -68,14 +68,15 @@ class IngestionConfiguration {
 	/** Picked up by Spring Boot's listener container factory. */
 	@Bean
 	DefaultErrorHandler ingestionErrorHandler(IngestionMessages messages, IngestionRepository repository,
-			StatusPublisher status, KafkaOperations<?, ?> kafka, IngestionProperties properties) {
+			StatusPublisher status, KafkaOperations<?, ?> kafka, IngestionProperties properties,
+			IngestionMetrics metrics) {
 		IngestionProperties.Retry retry = properties.retry();
 		ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(retry.maxAttempts() - 1);
 		backOff.setInitialInterval(retry.initialInterval().toMillis());
 		backOff.setMultiplier(retry.multiplier());
 		backOff.setMaxInterval(retry.maxInterval().toMillis());
 		DefaultErrorHandler handler = new DefaultErrorHandler(
-				new IngestionFailureRecoverer(messages, repository, status, kafka, properties), backOff);
+				new IngestionFailureRecoverer(messages, repository, status, kafka, properties, metrics), backOff);
 		// Retrying cannot fix the content of a file or a malformed message.
 		handler.addNotRetryableExceptions(ExtractionException.class, StoredFileMissingException.class,
 				MalformedMessageException.class);

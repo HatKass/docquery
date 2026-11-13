@@ -13,7 +13,8 @@ import dev.docquery.api.ingestion.IngestionMessages.DocumentUploaded;
 /**
  * Turns an ingestion request into an outbox row. A plain (synchronous) {@link EventListener} on
  * purpose: it runs inside the publisher's transaction, so the upload or re-index and its
- * {@code document.uploaded} event commit or roll back together.
+ * {@code document.uploaded} event commit or roll back together. The caller's trace context is stored
+ * with the event, so the trace continues through Kafka into the worker (see {@link OutboxTracing}).
  */
 @Component
 class IngestionRequestRecorder {
@@ -22,11 +23,15 @@ class IngestionRequestRecorder {
 
 	private final JsonMapper json;
 
+	private final OutboxTracing tracing;
+
 	private final String topic;
 
-	IngestionRequestRecorder(OutboxRepository outbox, JsonMapper json, IngestionProperties properties) {
+	IngestionRequestRecorder(OutboxRepository outbox, JsonMapper json, OutboxTracing tracing,
+			IngestionProperties properties) {
 		this.outbox = outbox;
 		this.json = json;
+		this.tracing = tracing;
 		this.topic = properties.topics().uploaded();
 	}
 
@@ -36,7 +41,8 @@ class IngestionRequestRecorder {
 		DocumentUploaded message = new DocumentUploaded(eventId, request.documentId(), request.workspaceId(),
 				request.storageKey(), request.contentType(), request.filename(), request.uploadedBy(),
 				request.reason().name(), Instant.now());
-		this.outbox.add(eventId, this.topic, request.documentId().toString(), this.json.writeValueAsString(message));
+		this.outbox.add(eventId, this.topic, request.documentId().toString(), this.json.writeValueAsString(message),
+				this.tracing.currentContext());
 	}
 
 }

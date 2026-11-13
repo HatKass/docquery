@@ -13,8 +13,11 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -68,10 +71,14 @@ public class DocumentService {
 
 	private final QuotaService quotas;
 
+	private final MeterRegistry meters;
+
 	DocumentService(DocumentRepository documents, WorkspaceAccess access, ObjectStorage storage,
 			DocumentTypeDetector detector, DocumentProperties properties, ApplicationEventPublisher events,
-			TransactionTemplate transactions, DocumentStatusService statusService, QuotaService quotas) {
+			TransactionTemplate transactions, DocumentStatusService statusService, QuotaService quotas,
+			MeterRegistry meters) {
 		this.quotas = quotas;
+		this.meters = meters;
 		this.documents = documents;
 		this.access = access;
 		this.storage = storage;
@@ -132,18 +139,24 @@ public class DocumentService {
 			String key = workspacePrefix(workspaceId) + UUID.randomUUID();
 			this.storage.put(key, temp, type.mediaType());
 			try {
-				return this.transactions.execute(status -> {
+				DocumentResponse created = this.transactions.execute(status -> {
 					// Limits are checked and counted with the insert: a failed upload uses up nothing.
 					this.quotas.requireDocumentSlot(workspaceId);
 					this.quotas.countUpload(user.id());
 					this.documents.insert(new NewDocument(id, workspaceId, filename, type.mediaType(), size,
 							sha256, key, user.id()));
-					DocumentResponse created = this.documents.find(workspaceId, id).orElseThrow();
-					this.events.publishEvent(DocumentChangedEvent.created(created));
+					DocumentResponse inserted = this.documents.find(workspaceId, id).orElseThrow();
+					this.events.publishEvent(DocumentChangedEvent.created(inserted));
 					this.events.publishEvent(new DocumentIngestionRequested(id, workspaceId, key, type.mediaType(),
 							filename, user.id(), DocumentIngestionRequested.Reason.UPLOAD));
-					return created;
+					return inserted;
 				});
+				Counter.builder("docquery.documents.uploaded")
+					.description("Documents accepted for ingestion, by detected type")
+					.tag("type", type.name().toLowerCase(Locale.ROOT))
+					.register(this.meters)
+					.increment();
+				return created;
 			}
 			catch (RuntimeException ex) {
 				deleteQuietly(key);

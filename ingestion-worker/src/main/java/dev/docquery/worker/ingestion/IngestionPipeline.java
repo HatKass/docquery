@@ -34,6 +34,9 @@ import dev.docquery.worker.storage.DocumentStorage;
  * <p>
  * Exceptions propagate to the Kafka error handler: content problems ({@link ExtractionException})
  * fail the document at once; anything else is retried with backoff (see {@code IngestionKafkaConfiguration}).
+ * <p>
+ * Each step runs in its own span inside the document's trace, which started at the upload request in
+ * api-service and arrived here in the record's {@code traceparent} header (see {@link IngestionMetrics}).
  */
 @Service
 class IngestionPipeline {
@@ -54,8 +57,12 @@ class IngestionPipeline {
 
 	private final IngestionProperties properties;
 
+	private final IngestionMetrics metrics;
+
 	IngestionPipeline(IngestionRepository repository, DocumentStorage storage, TextExtractor extractor,
-			TextChunker chunker, ChunkEmbedder embedder, StatusPublisher status, IngestionProperties properties) {
+			TextChunker chunker, ChunkEmbedder embedder, StatusPublisher status, IngestionProperties properties,
+			IngestionMetrics metrics) {
+		this.metrics = metrics;
 		this.repository = repository;
 		this.storage = storage;
 		this.extractor = extractor;
@@ -79,14 +86,14 @@ class IngestionPipeline {
 		}
 		long started = System.nanoTime();
 		this.status.publish(event, StatusPublisher.EXTRACTING, null, null);
-		ExtractedDocument document = extract(event);
+		ExtractedDocument document = this.metrics.step("extract", event, () -> extract(event));
 		if (!document.hasText()) {
 			throw new ExtractionException("No text was found in this document. Scanned documents (images of text) "
 					+ "are not supported yet; upload a file with selectable text.");
 		}
 
 		this.status.publish(event, StatusPublisher.CHUNKING, document.pageCount(), null);
-		List<Chunk> chunks = this.chunker.chunk(document.pages());
+		List<Chunk> chunks = this.metrics.step("chunk", event, () -> this.chunker.chunk(document.pages()));
 		int maxChunks = this.properties.limits().maxChunks();
 		if (chunks.size() > maxChunks) {
 			throw new ExtractionException("The document is too long to index (" + chunks.size()
@@ -94,21 +101,26 @@ class IngestionPipeline {
 		}
 
 		this.status.publish(event, StatusPublisher.EMBEDDING, document.pageCount(), chunks.size());
-		EmbeddedChunks embedded;
-		try {
-			embedded = this.embedder.embed(chunks);
-		}
-		catch (RuntimeException ex) {
-			throw new EmbeddingUnavailableException(ex);
-		}
+		EmbeddedChunks embedded = this.metrics.step("embed", event, () -> {
+			try {
+				return this.embedder.embed(chunks);
+			}
+			catch (RuntimeException ex) {
+				throw new EmbeddingUnavailableException(ex);
+			}
+		});
 
-		if (!this.repository.saveIndex(event, chunks, embedded, document.pageCount())) {
+		boolean saved = this.metrics.step("index", event,
+				() -> this.repository.saveIndex(event, chunks, embedded, document.pageCount()));
+		if (!saved) {
 			log.info("Discarding index of document {}: deleted meanwhile or event {} processed concurrently",
 					event.documentId(), event.eventId());
 			this.repository.findProcessed(event.eventId()).ifPresent(done -> reannounce(event, done));
 			return;
 		}
 		this.status.publish(event, StatusPublisher.READY, document.pageCount(), chunks.size());
+		this.metrics.indexed(event, document.pageCount(), chunks.size(), embedded.model(), embedded.inputTokens(),
+				embedded.tokensEstimated());
 		log.info("Indexed document {} of workspace {}: {} page(s), {} chunk(s), {} {} token(s) with {} in {} ms",
 				event.documentId(), event.workspaceId(), document.pageCount(), chunks.size(),
 				embedded.tokensEstimated() ? "~" : "", embedded.inputTokens(), embedded.model(),

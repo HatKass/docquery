@@ -4,6 +4,9 @@
 #   docker compose --profile apps up -d --build   # + api-service and ingestion-worker containers
 #   docker compose --profile ai up -d         # optional fallback: Ollama in a container
 #
+# Observability (ADR 0014) is part of the core stack: Grafana at http://localhost:3000
+# (admin / admin_local), with Prometheus (metrics), Tempo (traces) and Loki (logs) behind it.
+#
 # Embeddings and chat use a native Ollama on the host by default (GPU access, models shared with
 # your other tools): http://localhost:11434 from source, http://host.docker.internal:11434 from
 # containers. To use the containerized Ollama instead, set OLLAMA_BASE_URL=http://ollama:11434.
@@ -142,6 +145,85 @@ services:
           printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
           grep -q '"UP"' <&3
 
+  # --- Observability (ADR 0014) ------------------------------------------------
+  # The services push traces (Tempo) and logs (Loki) over OTLP/HTTP; Prometheus pulls their metrics.
+  # Local-development settings: single binaries, local disk. Grafana is the only UI you need.
+
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      # Tempo writes its span metrics and service graph here.
+      - --web.enable-remote-write-receiver
+      # Exemplars link a latency spike on a dashboard to an example trace.
+      - --enable-feature=exemplar-storage
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    # Reaches services running from source on the host. Docker Desktop resolves it by itself.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+
+  tempo:
+    image: grafana/tempo:2.10.10
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    ports:
+      - "${TEMPO_PORT:-3200}:3200"              # query API (Grafana uses the compose network)
+      - "${OTLP_TRACES_PORT:-4318}:4318"        # OTLP/HTTP from services running on the host
+    volumes:
+      - ./infra/observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    # Distroless image (no shell or wget), so no container healthcheck; readiness: http://localhost:3200/ready
+
+  loki:
+    image: grafana/loki:3.7.9
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "${LOKI_PORT:-3100}:3100"               # OTLP/HTTP logs at /otlp/v1/logs, query API
+    volumes:
+      - ./infra/observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    # Distroless image (no shell or wget), so no container healthcheck; readiness: http://localhost:3100/ready
+
+  grafana:
+    image: grafana/grafana:13.2.5
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin_local}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/docquery-overview.json
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+
   # --- Optional fallback: Ollama in a container (profile "ai") ----------------
   # Prefer a native Ollama install (see the header). CPU-only here unless GPU passthrough is set up.
   ollama:
@@ -223,6 +305,11 @@ services:
       QUOTA_DAILY_UPLOADS_PER_USER: ${QUOTA_DAILY_UPLOADS_PER_USER:-20}
       QUOTA_MAX_DOCUMENTS_PER_WORKSPACE: ${QUOTA_MAX_DOCUMENTS_PER_WORKSPACE:-100}
       ADMIN_ROLE: ${ADMIN_ROLE:-docquery-admin}
+      # Observability (Phase 7): JSON logs, traces to Tempo, logs to Loki.
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+      OTLP_LOGS_ENDPOINT: http://loki:3100/otlp/v1/logs
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
     # Docker Desktop resolves host.docker.internal by itself; this makes it work on Linux too.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -259,6 +346,11 @@ services:
       EMBEDDING_DOCUMENT_PREFIX: "${EMBEDDING_DOCUMENT_PREFIX-search_document: }"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      # Observability (Phase 7): JSON logs, traces to Tempo, logs to Loki.
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+      OTLP_LOGS_ENDPOINT: http://loki:3100/otlp/v1/logs
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
     # Docker Desktop resolves host.docker.internal by itself; this makes it work on Linux too.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -274,3 +366,7 @@ volumes:
   kafka-data:
   object-storage-data:
   ollama-data:
+  prometheus-data:
+  tempo-data:
+  loki-data:
+  grafana-data:

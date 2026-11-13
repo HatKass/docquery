@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CONSOLE: human-readable text by default (running from source), or one JSON object per line in the
+  Elastic Common Schema with LOG_FORMAT=json (containers; see compose.yaml). Both include the trace
+  and span id of the current request or Kafka record. See logback/console-{text,json}.xml.
+
+  OTEL: every record is also exported over OTLP (to Loki locally) with its trace context, so Grafana
+  can jump from a trace to its logs. Disabled with management.logging.export.otlp.enabled=false.
+-->
+<configuration>
+	<include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+	<springProperty scope="context" name="CONSOLE_FORMAT" source="docquery.logging.console-format" defaultValue="text"/>
+	<include resource="logback/console-${CONSOLE_FORMAT}.xml"/>
+
+	<appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+		<captureExperimentalAttributes>true</captureExperimentalAttributes>
+		<captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
+	</appender>
+
+	<root level="INFO">
+		<appender-ref ref="CONSOLE"/>
+		<appender-ref ref="OTEL"/>
+	</root>
+</configuration>

@@ -42,6 +42,10 @@ class SecurityConfiguration {
 			.permitAll()
 			.requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/error")
 			.permitAll()
+			// Scraped by Prometheus. Aggregates only (no tenant ids or content in tags); keep it off the
+			// public internet at the reverse proxy (ADR 0014).
+			.requestMatchers("/actuator/prometheus")
+			.permitAll()
 			// Platform administration; everything else is authorized per workspace (WorkspaceAccess).
 			.requestMatchers("/api/admin/**")
 			.hasRole("ADMIN")

@@ -22,6 +22,9 @@ flowchart LR
   W --> S3
   W -.->|embeddings / chat| LLM[Ollama locally · OpenAI / Anthropic in prod]
   API -.-> LLM
+  API & W -.->|OTLP traces + logs| OBS[Tempo · Loki]
+  PR[Prometheus] -.->|scrape| API & W
+  GF[Grafana :3000] --> OBS & PR
 ```
 
 | Module | What it is |
@@ -29,7 +32,7 @@ flowchart LR
 | [`api-service/`](api-service) | Spring Boot 4.1: auth, workspaces, documents, search, RAG chat |
 | [`ingestion-worker/`](ingestion-worker) | Spring Boot 4.1: Kafka consumer running extract → chunk → embed → index |
 | [`frontend/`](frontend) | Angular 22 (standalone, signals, zoneless) + Tailwind CSS 4 |
-| [`infra/`](infra) | Config for the Compose stack: Postgres init, Keycloak realm, object storage |
+| [`infra/`](infra) | Config for the Compose stack: Postgres init, Keycloak realm, object storage, observability (Prometheus, Tempo, Loki, Grafana dashboards) |
 | [`docs/`](docs) | Architecture Decision Records ([`docs/adr`](docs/adr)) |
 
 ## Run locally
@@ -43,7 +46,7 @@ ollama pull llama3.2:3b        # chat model (fits a 4 GB GPU); qwen2.5:7b answer
 ```
 
 ```bash
-docker compose up -d --wait                       # Postgres+pgvector, Kafka, object storage, Keycloak
+docker compose up -d --wait                       # Postgres+pgvector, Kafka, object storage, Keycloak, observability
 docker compose --profile apps up -d --build --wait  # optional: run both Spring services in containers
 docker compose --profile ai up -d                 # optional fallback: Ollama in a container (set OLLAMA_BASE_URL=http://ollama:11434)
 ```
@@ -289,6 +292,43 @@ users with a per-user workspace limit override.
 | POST | `/api/admin/dead-letters/{id}/retry`, `/api/admin/dead-letters/{id}/dismiss` | admin |
 | GET / PUT | `/api/admin/users?q=`, `/api/admin/users/{userId}/workspace-limit` `{"limit": 10 \| 0 \| null}` | admin |
 
+## Observability
+
+Every document is **one trace** across both services and Kafka, even through the transactional
+outbox; metrics go to Prometheus, logs (JSON on the console, trace ids included) to Loki, and Grafana
+ties them together. See [ADR 0014](docs/adr/0014-observability-otlp-prometheus-grafana.md).
+
+| What | Where |
+|------|-------|
+| Grafana (dashboards, Explore) | http://localhost:3000, `admin` / `admin_local` |
+| Dashboards (committed JSON) | *DocQuery Overview* (home), *DocQuery JVM and resources*: [`infra/observability/grafana/dashboards`](infra/observability/grafana/dashboards) |
+| Prometheus | http://localhost:9090 (targets: Status → Targets) |
+| Raw metrics | http://localhost:8080/actuator/prometheus, http://localhost:8081/actuator/prometheus |
+
+**Follow one upload:** upload a document, open Grafana → *DocQuery Overview* → **Recent document
+ingestions** → click the trace ID. You see:
+
+```
+http post /api/workspaces/{workspaceId}/documents       api-service
+└─ outbox relay                                         api-service   (waited docquery.outbox.wait_ms)
+   └─ document.uploaded send                            api-service
+      └─ document.uploaded process                      ingestion-worker
+         ├─ document.status send → document.status process   (EXTRACTING, back in api-service)
+         ├─ ingestion extract
+         ├─ ingestion chunk
+         ├─ ingestion embed → embedding → http post (Ollama)
+         ├─ ingestion index
+         └─ document.status send → document.status process   (… READY)
+```
+
+In a span, **Logs for this span** opens that trace's log lines from both services in Loki
+(`{service_namespace="docquery"} | trace_id="<id>"`). In Explore → Tempo, *Service graph* shows
+api-service ⇄ ingestion-worker. Chat questions are traced too (`chat answer` → `retrieval answer`,
+`chat <model>`), with time-to-first-token and answer outcomes on the dashboard.
+
+Logs are readable text when run from source and ECS JSON in containers; set `LOG_FORMAT=json` to get
+JSON from source too. Metric labels never contain workspace/user ids or content.
+
 ## Tests
 
 ```bash
@@ -312,6 +352,7 @@ cd frontend && npm run test:ci         # Vitest
 - [ADR 0011](docs/adr/0011-hybrid-retrieval-with-reciprocal-rank-fusion.md): **Hybrid retrieval**: pgvector + Postgres full-text search, merged by reciprocal rank fusion, with a relevance floor that skips the model when nothing matches.
 - [ADR 0012](docs/adr/0012-grounded-answers-and-prompt-injection-hygiene.md): **Grounded answers over SSE**; documents are untrusted data in delimited blocks; citations validated and built server-side.
 - [ADR 0013](docs/adr/0013-usage-ledger-quotas-and-platform-admin.md): **Usage ledger + estimated costs**, quotas as atomic daily counters, a workspace-creation limit with admin override, and a **platform-admin Keycloak realm role**; dead letters consumed into an admin inbox.
+- [ADR 0014](docs/adr/0014-observability-otlp-prometheus-grafana.md): **OpenTelemetry traces across the outbox and Kafka** (trace context stored with each outbox event), Prometheus metrics, ECS JSON logs shipped to Loki over OTLP, Grafana with committed dashboards.
 
 ## Roadmap
 
@@ -321,7 +362,7 @@ cd frontend && npm run test:ci         # Vitest
 4. ✅ Ingestion pipeline
 5. ✅ RAG chat
 6. ✅ Usage & admin
-7. Observability
+7. ✅ Observability
 8. Testing & evaluation
 9. Kubernetes & deployment
 10. Docs

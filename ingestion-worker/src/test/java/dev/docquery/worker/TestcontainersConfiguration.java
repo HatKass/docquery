@@ -3,6 +3,8 @@ package dev.docquery.worker;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
@@ -79,6 +81,12 @@ public class TestcontainersConfiguration {
 			registry.add("docquery.storage.s3.secret-key", () -> "test-secret-key");
 			registry.add("docquery.storage.s3.bucket", () -> TEST_BUCKET);
 		};
+	}
+
+	/** Finished spans, for assertions on traces (added to the SDK next to the disabled OTLP exporter). */
+	@Bean
+	InMemorySpanExporter inMemorySpanExporter() {
+		return InMemorySpanExporter.create();
 	}
 
 }

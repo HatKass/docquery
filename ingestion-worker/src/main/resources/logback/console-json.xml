@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LOG_FORMAT=json: one JSON object per line, Elastic Common Schema (trace.id / span.id included). -->
+<included>
+	<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+		<filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+			<level>${CONSOLE_LOG_THRESHOLD}</level>
+		</filter>
+		<encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+			<format>ecs</format>
+			<charset>${CONSOLE_LOG_CHARSET}</charset>
+		</encoder>
+	</appender>
+</included>

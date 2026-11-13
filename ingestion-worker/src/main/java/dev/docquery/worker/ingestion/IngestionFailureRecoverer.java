@@ -38,8 +38,11 @@ class IngestionFailureRecoverer implements ConsumerRecordRecoverer {
 
 	private final int maxAttempts;
 
+	private final IngestionMetrics metrics;
+
 	IngestionFailureRecoverer(IngestionMessages messages, IngestionRepository repository, StatusPublisher status,
-			KafkaOperations<?, ?> kafka, IngestionProperties properties) {
+			KafkaOperations<?, ?> kafka, IngestionProperties properties, IngestionMetrics metrics) {
+		this.metrics = metrics;
 		this.messages = messages;
 		this.repository = repository;
 		this.status = status;
@@ -60,6 +63,7 @@ class IngestionFailureRecoverer implements ConsumerRecordRecoverer {
 					exception);
 			this.repository.recordFailure(event, reason);
 			this.status.publishFailed(event, reason);
+			this.metrics.failed(event);
 		}
 		else {
 			log.error("Unprocessable record at {}-{}@{} sent to the dead-letter topic", record.topic(),
