@@ -122,6 +122,7 @@ Phase 9 (Kubernetes & deployment):
 - Use a cloud chat model for the public demo (llama3.2:3b is not reliable enough at following grounding rules). Document the model choice with the evaluation numbers.
 - CI: the Keycloak Testcontainer can take ~2.5 min to start; keep the 5-min timeout and watch CI duration.
 - Before the public demo, add per-user question-quota overrides and a platform-wide daily spending cap (stop cloud-model calls when the daily estimated cost reaches a configured limit).
+- /actuator/prometheus is public (no auth) for scraping; the reverse proxy/ingress must block it (and all /actuator except health) from the internet (ADR 0014). Grafana must not use the local admin/admin_local credentials in any deployed environment.
 
 General:
 - Every new workspace-scoped endpoint must be added to TenantIsolationTests (the test already enforces this).

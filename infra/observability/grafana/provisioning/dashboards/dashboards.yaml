@@ -1,0 +1,14 @@
+# Loads the dashboards committed in infra/observability/grafana/dashboards (JSON) into the
+# "DocQuery" folder. Edit them in the repository, not in the UI: UI changes are not saved back.
+apiVersion: 1
+
+providers:
+  - name: docquery
+    folder: DocQuery
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

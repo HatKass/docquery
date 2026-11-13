@@ -49,10 +49,13 @@ public class ChatService {
 
 	private final UsageLedger ledger;
 
+	private final ChatMetrics metrics;
+
 	ChatService(ConversationRepository conversations, WorkspaceAccess access, ChunkRetriever retriever,
 			ChatModel chatModel, ChatProperties properties, TransactionTemplate transactions,
 			@Qualifier("applicationTaskExecutor") AsyncTaskExecutor executor, QueryRewriter rewriter,
-			QuotaService quotas, UsageLedger ledger) {
+			QuotaService quotas, UsageLedger ledger, ChatMetrics metrics) {
+		this.metrics = metrics;
 		this.quotas = quotas;
 		this.ledger = ledger;
 		this.rewriter = rewriter;
@@ -115,7 +118,7 @@ public class ChatService {
 		SseEmitter emitter = new SseEmitter(this.properties.streamTimeout().toMillis());
 		AnswerStream stream = new AnswerStream(emitter, workspaceId, conversationId, user.id(), stored,
 				this.conversations, this.retriever, this.rewriter, this.chatModel, this.properties, this.transactions,
-				this.ledger);
+				this.ledger, this.metrics);
 		stream.start();
 		this.executor.execute(stream::run);
 		return emitter;

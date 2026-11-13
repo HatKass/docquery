@@ -1,5 +1,12 @@
 # All values can be overridden with environment variables; defaults target the
 # local Docker Compose stack (see /compose.yaml and /.env.example).
+logging:
+  structured:
+    ecs:
+      service:
+        # JSON (ECS) logs: service.environment, next to service.name (spring.application.name).
+        environment: ${DEPLOYMENT_ENVIRONMENT:local}
+
 spring:
   application:
     name: ingestion-worker
@@ -33,6 +40,11 @@ spring:
       ack-mode: record
       # Documents processed in parallel by this instance (topics have docquery.ingestion.topics.partitions).
       concurrency: ${INGESTION_CONCURRENCY:2}
+      # Consumer spans continue the api-service's trace (traceparent header): one trace per document.
+      observation-enabled: true
+    template:
+      # Status events and dead letters carry the trace on to api-service.
+      observation-enabled: true
 
   # --- Embeddings (Spring AI). The provider is configuration, not code. ---------------------
   ai:
@@ -82,6 +94,9 @@ server:
   shutdown: graceful
 
 docquery:
+  logging:
+    # Console log format: text (readable, default from source) | json (ECS, one object per line; containers).
+    console-format: ${LOG_FORMAT:text}
   health:
     kafka:
       timeout: ${KAFKA_HEALTH_TIMEOUT:3s}
@@ -124,7 +139,44 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus: scraped by Prometheus (compose.yaml). Not to be exposed publicly (ADR 0014).
+        include: health,info,prometheus
+  # --- Observability (Phase 7, ADR 0014): same setup as api-service. ---
+  tracing:
+    # Applies to traces started here only: a document's trace follows api-service's sampling decision.
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+    export:
+      enabled: ${TRACING_EXPORT_ENABLED:true}
+  logging:
+    export:
+      otlp:
+        enabled: ${LOGS_EXPORT_ENABLED:true}
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  opentelemetry:
+    resource-attributes:
+      service.namespace: docquery
+      deployment.environment.name: ${DEPLOYMENT_ENVIRONMENT:local}
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTLP_LOGS_ENDPOINT:http://localhost:3100/otlp/v1/logs}
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        docquery: true
+        gen_ai.client.operation: true
+        spring.kafka: true
   endpoint:
     health:
       probes:

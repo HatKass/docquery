@@ -1,9 +1,12 @@
 package dev.docquery.api.chat;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
+import io.micrometer.common.KeyValue;
+import io.micrometer.observation.Observation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -106,9 +109,19 @@ final class AnswerStream {
 	/** Characters sent to the model, for a token estimate when the provider reports no usage. */
 	private int promptCharacters;
 
+	private final ChatMetrics metrics;
+
+	/** One of the {@link ChatMetrics} outcomes, set when the answer finishes. */
+	private volatile String outcome = ChatMetrics.FAILED;
+
+	private long startedNanos;
+
+	private boolean firstTextSent;
+
 	AnswerStream(SseEmitter emitter, UUID workspaceId, UUID conversationId, UUID userId, MessageResponse question,
 			ConversationRepository conversations, ChunkRetriever retriever, QueryRewriter rewriter, ChatModel chatModel,
-			ChatProperties properties, TransactionTemplate transactions, UsageLedger ledger) {
+			ChatProperties properties, TransactionTemplate transactions, UsageLedger ledger, ChatMetrics metrics) {
+		this.metrics = metrics;
 		this.userId = userId;
 		this.ledger = ledger;
 		this.rewriter = rewriter;
@@ -138,6 +151,18 @@ final class AnswerStream {
 	}
 
 	void run() {
+		this.startedNanos = System.nanoTime();
+		Observation observation = this.metrics.startAnswer();
+		try (Observation.Scope scope = observation.openScope()) {
+			answer();
+		}
+		finally {
+			observation.lowCardinalityKeyValue(KeyValue.of("outcome", this.outcome));
+			observation.stop();
+		}
+	}
+
+	private void answer() {
 		try {
 			List<GroundedPrompt.HistoryMessage> history = this.conversations.history(this.workspaceId,
 					this.conversationId, this.question.id(), this.properties.historyMessages());
@@ -146,7 +171,8 @@ final class AnswerStream {
 			this.rewrite = this.rewriter.rewrite(this.question.content(), history);
 			this.searchQuery = this.rewrite.query();
 			if (this.rewrite.rewritten()) {
-				log.info("Conversation {}: searching for \"{}\" (rewritten from \"{}\")", this.conversationId,
+				// DEBUG: questions are user content, and logs are shipped to the central log store.
+				log.debug("Conversation {}: searching for \"{}\" (rewritten from \"{}\")", this.conversationId,
 						this.searchQuery, this.question.content());
 			}
 			// Assessments and summaries get more of the document they are about; factual questions don't.
@@ -207,6 +233,10 @@ final class AnswerStream {
 		if (this.finished) {
 			return;
 		}
+		if (!this.firstTextSent) {
+			this.firstTextSent = true;
+			this.metrics.recordFirstToken(Duration.ofNanos(System.nanoTime() - this.startedNanos));
+		}
 		this.answer.append(text);
 		send(DELTA, new StreamDelta(text));
 	}
@@ -216,6 +246,7 @@ final class AnswerStream {
 			return;
 		}
 		this.finished = true;
+		this.outcome = modelCalled ? ChatMetrics.ANSWERED : ChatMetrics.NOT_FOUND;
 		CitationExtractor.Extracted extracted = CitationExtractor.extract(this.answer.toString(), sources.size());
 		List<CitationResponse> citations = extracted.sourceNumbers().stream().map(n -> {
 			RetrievedChunk source = sources.get(n - 1);
@@ -231,6 +262,7 @@ final class AnswerStream {
 		catch (RuntimeException ex) {
 			// E.g. the conversation was deleted while the answer streamed.
 			log.warn("Could not store the answer in conversation {}: {}", this.conversationId, ex.toString());
+			this.outcome = ChatMetrics.FAILED;
 			sendQuietly(ERROR, new StreamError(null, "The answer could not be saved."));
 			this.emitter.complete();
 		}
@@ -241,6 +273,7 @@ final class AnswerStream {
 			return;
 		}
 		this.finished = true;
+		this.outcome = this.cancelled ? ChatMetrics.CANCELLED : ChatMetrics.FAILED;
 		String partial = this.answer.toString().strip();
 		String content = partial.isEmpty() ? reason : partial + "\n\n(" + reason + ")";
 		MessageResponse stored = null;

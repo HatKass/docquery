@@ -1,32 +1,54 @@
 package dev.docquery.api.ingestion;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 /** The transactional outbox table: events waiting to be relayed to Kafka. */
 @Repository
 class OutboxRepository {
 
-	record OutboxEvent(UUID id, String topic, String key, String payload) {
+	/** @param traceContext propagation headers of the request that queued the event (may be empty) */
+	record OutboxEvent(UUID id, String topic, String key, String payload, Map<String, String> traceContext,
+			Instant createdAt) {
 	}
+
+	private static final TypeReference<Map<String, String>> HEADERS = new TypeReference<>() {
+	};
 
 	private static final int MAX_ERROR_LENGTH = 1000;
 
 	private final JdbcClient jdbc;
 
-	OutboxRepository(JdbcClient jdbc) {
+	private final JsonMapper json;
+
+	OutboxRepository(JdbcClient jdbc, JsonMapper json) {
 		this.jdbc = jdbc;
+		this.json = json;
 	}
 
-	/** Must run inside the transaction of the change that caused the event. */
-	void add(UUID id, String topic, String key, String payload) {
+	/**
+	 * Must run inside the transaction of the change that caused the event.
+	 *
+	 * @param traceContext stored with the event so the relay continues the caller's trace
+	 */
+	void add(UUID id, String topic, String key, String payload, Map<String, String> traceContext) {
 		this.jdbc.sql("""
-				INSERT INTO outbox_event (id, topic, message_key, payload)
-				VALUES (:id, :topic, :key, CAST(:payload AS jsonb))
-				""").param("id", id).param("topic", topic).param("key", key).param("payload", payload).update();
+				INSERT INTO outbox_event (id, topic, message_key, payload, trace_headers)
+				VALUES (:id, :topic, :key, CAST(:payload AS jsonb), CAST(:traceHeaders AS jsonb))
+				""")
+			.param("id", id)
+			.param("topic", topic)
+			.param("key", key)
+			.param("payload", payload)
+			.param("traceHeaders", traceContext.isEmpty() ? null : this.json.writeValueAsString(traceContext))
+			.update();
 	}
 
 	/**
@@ -35,7 +57,7 @@ class OutboxRepository {
 	 */
 	List<OutboxEvent> lockOldest(int limit) {
 		return this.jdbc.sql("""
-				SELECT id, topic, message_key, payload::text AS payload
+				SELECT id, topic, message_key, payload::text AS payload, trace_headers::text AS trace_headers, created_at
 				  FROM outbox_event
 				 ORDER BY created_at, id
 				 LIMIT :limit
@@ -43,8 +65,13 @@ class OutboxRepository {
 				""")
 			.param("limit", limit)
 			.query((rs, i) -> new OutboxEvent(rs.getObject("id", UUID.class), rs.getString("topic"),
-					rs.getString("message_key"), rs.getString("payload")))
+					rs.getString("message_key"), rs.getString("payload"), traceContext(rs.getString("trace_headers")),
+					rs.getTimestamp("created_at").toInstant()))
 			.list();
+	}
+
+	private Map<String, String> traceContext(String headers) {
+		return (headers != null) ? this.json.readValue(headers, HEADERS) : Map.of();
 	}
 
 	void delete(UUID id) {
@@ -62,6 +89,14 @@ class OutboxRepository {
 
 	int count() {
 		return this.jdbc.sql("SELECT count(*) FROM outbox_event").query(Integer.class).single();
+	}
+
+	/** Seconds the oldest waiting event has been waiting; 0 when the outbox is empty. */
+	double oldestAgeSeconds() {
+		return this.jdbc
+			.sql("SELECT coalesce(extract(epoch FROM now() - min(created_at)), 0)::float8 FROM outbox_event")
+			.query(Double.class)
+			.single();
 	}
 
 }

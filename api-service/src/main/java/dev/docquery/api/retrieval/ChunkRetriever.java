@@ -8,7 +8,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 
+import io.micrometer.common.KeyValue;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -23,6 +27,8 @@ import org.springframework.stereotype.Service;
  * <p>
  * If the embedding provider is unavailable, retrieval degrades to full-text search only instead of
  * failing: a slightly worse answer beats no answer.
+ * <p>
+ * Every retrieval is a {@code docquery.retrieval} observation (span + timer, tagged search or answer).
  */
 @Service
 public class ChunkRetriever {
@@ -35,16 +41,22 @@ public class ChunkRetriever {
 
 	private final RetrievalProperties properties;
 
-	ChunkRetriever(RetrievalRepository repository, EmbeddingModel embeddingModel, RetrievalProperties properties) {
+	private final ObservationRegistry observations;
+
+	ChunkRetriever(RetrievalRepository repository, EmbeddingModel embeddingModel, RetrievalProperties properties,
+			ObservationRegistry observations) {
 		this.repository = repository;
 		this.embeddingModel = embeddingModel;
 		this.properties = properties;
+		this.observations = observations;
 	}
 
 	/** Plain hybrid search for one query (the search endpoint). */
 	public List<RetrievedChunk> retrieve(UUID workspaceId, String query, int limit) {
-		Search search = search(workspaceId, List.of(query));
-		return RankFusion.fuseAll(search.vectorLists(), search.keywordLists(), this.properties.rrfK(), limit);
+		return observe("search", () -> {
+			Search search = search(workspaceId, List.of(query));
+			return RankFusion.fuseAll(search.vectorLists(), search.keywordLists(), this.properties.rrfK(), limit);
+		});
 	}
 
 	/**
@@ -67,6 +79,21 @@ public class ChunkRetriever {
 	 * evaluative questions); a document the queries name by file name is always widened
 	 */
 	public List<RetrievedChunk> retrieveForAnswer(UUID workspaceId, List<String> queries, boolean widenByMajority) {
+		return observe("answer", () -> sourcesForAnswer(workspaceId, queries, widenByMajority));
+	}
+
+	private List<RetrievedChunk> observe(String kind, Supplier<List<RetrievedChunk>> retrieval) {
+		Observation observation = Observation.createNotStarted("docquery.retrieval", this.observations)
+			.contextualName("retrieval " + kind)
+			.lowCardinalityKeyValue(KeyValue.of("kind", kind));
+		return observation.observe(() -> {
+			List<RetrievedChunk> found = retrieval.get();
+			observation.highCardinalityKeyValue(KeyValue.of("docquery.retrieval.sources", Integer.toString(found.size())));
+			return found;
+		});
+	}
+
+	private List<RetrievedChunk> sourcesForAnswer(UUID workspaceId, List<String> queries, boolean widenByMajority) {
 		List<String> distinct = List.copyOf(new LinkedHashSet<>(queries));
 		Search search = search(workspaceId, distinct);
 		List<RetrievedChunk> fused = RankFusion.fuseAll(search.vectorLists(), search.keywordLists(),

@@ -3,6 +3,8 @@ package dev.docquery.api;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
@@ -99,6 +101,12 @@ public class TestcontainersConfiguration {
 			// Small limit so tests can exceed it cheaply.
 			registry.add("docquery.documents.max-file-size", () -> "1MB");
 		};
+	}
+
+	/** Finished spans, for assertions on traces (added to the SDK next to the disabled OTLP exporter). */
+	@Bean
+	InMemorySpanExporter inMemorySpanExporter() {
+		return InMemorySpanExporter.create();
 	}
 
 }

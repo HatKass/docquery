@@ -23,6 +23,8 @@
 		<aws-sdk.version>2.57.5</aws-sdk.version>
 		<!-- Apache Tika: text extraction with page boundaries (PDF via PDFBox, DOCX via POI). -->
 		<tika.version>4.2.0</tika.version>
+		<!-- Logback → OpenTelemetry logs bridge (not managed by Boot); same version as api-service. -->
+		<opentelemetry-logback-appender.version>2.28.1-alpha</opentelemetry-logback-appender.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -65,6 +67,20 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-jdbc</artifactId>
+		</dependency>
+		<!-- Observability (Phase 7): same setup as api-service, see docs/adr/0014. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-opentelemetry</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry.instrumentation</groupId>
+			<artifactId>opentelemetry-logback-appender-1.0</artifactId>
+			<version>${opentelemetry-logback-appender.version}</version>
 		</dependency>
 		<!-- Embedding providers behind Spring AI's EmbeddingModel; spring.ai.model.embedding picks one. -->
 		<dependency>
@@ -122,6 +138,16 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-opentelemetry-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-sdk-testing</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>

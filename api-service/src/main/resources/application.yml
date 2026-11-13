@@ -1,5 +1,12 @@
 # All values can be overridden with environment variables; defaults target the
 # local Docker Compose stack (see /compose.yaml and /.env.example).
+logging:
+  structured:
+    ecs:
+      service:
+        # JSON (ECS) logs: service.environment, next to service.name (spring.application.name).
+        environment: ${DEPLOYMENT_ENVIRONMENT:local}
+
 spring:
   application:
     name: api-service
@@ -48,6 +55,11 @@ spring:
         max.block.ms: 10000
     listener:
       ack-mode: record
+      # Consumer spans continue the producer's trace (traceparent header): one trace per document.
+      observation-enabled: true
+    template:
+      # Producer spans and the traceparent header on every sent record.
+      observation-enabled: true
   # --- Chat and query embeddings (Spring AI). The providers are configuration, not code. -----
   ai:
     model:
@@ -127,7 +139,55 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus: scraped by Prometheus (compose.yaml). Not to be exposed publicly (ADR 0014).
+        include: health,info,prometheus
+  # --- Observability (Phase 7, ADR 0014): traces and logs over OTLP, metrics via Prometheus scrape. ---
+  tracing:
+    # Every request is traced locally; lower it in production (e.g. 0.1). Downstream services follow
+    # the caller's decision (parent-based sampling), so a trace is always complete.
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+    export:
+      enabled: ${TRACING_EXPORT_ENABLED:true}
+  logging:
+    export:
+      otlp:
+        enabled: ${LOGS_EXPORT_ENABLED:true}
+  otlp:
+    metrics:
+      export:
+        # Metrics are pulled by Prometheus instead.
+        enabled: false
+  opentelemetry:
+    # service.name comes from spring.application.name.
+    resource-attributes:
+      service.namespace: docquery
+      deployment.environment.name: ${DEPLOYMENT_ENVIRONMENT:local}
+    tracing:
+      export:
+        otlp:
+          # Tempo (compose.yaml). Containers use http://tempo:4318/v1/traces.
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+    logging:
+      export:
+        otlp:
+          # Loki's native OTLP endpoint (compose.yaml). Containers use http://loki:3100/otlp/v1/logs.
+          endpoint: ${OTLP_LOGS_ENDPOINT:http://localhost:3100/otlp/v1/logs}
+  observations:
+    enable:
+      # A dozen filter-chain spans per request add noise, not insight; the HTTP span covers them.
+      spring.security: false
+  metrics:
+    tags:
+      # Lets one dashboard tell the services apart.
+      application: ${spring.application.name}
+    distribution:
+      # Histogram buckets for latency percentiles (p50/p95/p99 computed in Prometheus).
+      percentiles-histogram:
+        http.server.requests: true
+        docquery: true
+        gen_ai.client.operation: true
+        spring.kafka: true
   endpoint:
     health:
       probes:
@@ -143,6 +203,9 @@ management:
       enabled: true
 
 docquery:
+  logging:
+    # Console log format: text (readable, default from source) | json (ECS, one object per line; containers).
+    console-format: ${LOG_FORMAT:text}
   demo:
     # Seeds the demo users' memberships and "Demo workspace" (db/demo). Set
     # DEMO_SEED_ENABLED=false in production.

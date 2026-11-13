@@ -1,0 +1,34 @@
+# Prometheus: scrapes the Spring Boot services' /actuator/prometheus endpoints.
+#
+# Each service has two targets: the host (running from source: ./mvnw spring-boot:run) and the
+# compose network (the "apps" profile). Only the one you use is up; dashboards select series by the
+# "application" tag the services add themselves, so the other target never shows up in a panel.
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: api-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels: { mode: source }
+      - targets: ["api-service:8080"]
+        labels: { mode: container }
+
+  - job_name: ingestion-worker
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8081"]
+        labels: { mode: source }
+      - targets: ["ingestion-worker:8081"]
+        labels: { mode: container }
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Tempo's own metrics (ingestion, storage). Its span metrics and service graph arrive by remote write.
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]

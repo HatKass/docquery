@@ -18,5 +18,6 @@ context → decision → consequences. ADRs are immutable once accepted; a chang
 | 0011 | [Hybrid retrieval: pgvector + PostgreSQL full-text search, merged with reciprocal rank fusion](0011-hybrid-retrieval-with-reciprocal-rank-fusion.md) | Accepted |
 | 0012 | [Grounded, streamed answers with server-side citations and prompt-injection hygiene](0012-grounded-answers-and-prompt-injection-hygiene.md) | Accepted |
 | 0013 | [Usage ledger, quotas and a platform-admin role](0013-usage-ledger-quotas-and-platform-admin.md) | Accepted |
+| 0014 | [Observability: OpenTelemetry traces across the outbox and Kafka, Prometheus metrics, logs in Loki, Grafana](0014-observability-otlp-prometheus-grafana.md) | Accepted |
 
 Use [`template.md`](template.md) for new records.

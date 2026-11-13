@@ -2,6 +2,8 @@ package dev.docquery.api.document;
 
 import java.util.UUID;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -29,9 +31,12 @@ public class DocumentStatusService {
 
 	private final ApplicationEventPublisher events;
 
-	DocumentStatusService(DocumentRepository documents, ApplicationEventPublisher events) {
+	private final MeterRegistry meters;
+
+	DocumentStatusService(DocumentRepository documents, ApplicationEventPublisher events, MeterRegistry meters) {
 		this.documents = documents;
 		this.events = events;
+		this.meters = meters;
 	}
 
 	/**
@@ -54,6 +59,11 @@ public class DocumentStatusService {
 		}
 		String reason = (next == DocumentStatus.FAILED) ? normalizeReason(failureReason) : null;
 		this.documents.updateStatus(documentId, next, reason, pageCount, chunkCount);
+		Counter.builder("docquery.documents.status.changes")
+			.description("Document status changes applied (READY and FAILED are ingestion outcomes)")
+			.tag("status", next.name())
+			.register(this.meters)
+			.increment();
 		this.documents.find(current.workspaceId(), documentId)
 			.ifPresent(updated -> this.events.publishEvent(DocumentChangedEvent.updated(updated)));
 		return true;
