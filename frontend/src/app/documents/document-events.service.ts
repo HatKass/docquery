@@ -1,6 +1,7 @@
 import { Injectable, InjectionToken, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { AuthService } from '../auth/auth.service';
+import { SessionWatch } from '../auth/session-watch.service';
 import { SseParser } from '../shared/sse-parser';
 import { DocumentStreamMessage, DocumentSummary } from './document.model';
 
@@ -33,6 +34,7 @@ export class StreamRejectedError extends Error {
 export class DocumentEvents {
   private readonly auth = inject(AuthService);
   private readonly fetch = inject(FETCH);
+  private readonly session = inject(SessionWatch);
   private readonly delays = inject(RECONNECT_DELAYS_MS);
 
   connect(workspaceId: string): Observable<DocumentStreamMessage> {
@@ -55,6 +57,9 @@ export class DocumentEvents {
           signal: controller.signal,
           cache: 'no-store',
         });
+        if (response.status === 401) {
+          void this.session.onUnauthorized();
+        }
         if (response.status === 401 || response.status === 403 || response.status === 404) {
           throw new StreamRejectedError(response.status);
         }

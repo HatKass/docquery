@@ -15,6 +15,9 @@ export class AuthService {
   private readonly userManager = inject(USER_MANAGER);
 
   private readonly _user = signal<User | null>(null);
+  private readonly _signingOut = signal(false);
+  /** Between "Sign out" and leaving the page: failing requests are expected then, not an expiry. */
+  readonly isSigningOut = this._signingOut.asReadonly();
   readonly user = this._user.asReadonly();
   readonly isAuthenticated = computed(() => {
     const user = this._user();
@@ -58,6 +61,27 @@ export class AuthService {
 
   /** Ends the Keycloak session too (RP-initiated logout), not just the local one. */
   async logout(): Promise<void> {
-    await this.userManager.signoutRedirect();
+    this._signingOut.set(true);
+    try {
+      await this.userManager.signoutRedirect();
+    } catch (e) {
+      this._signingOut.set(false);
+      throw e;
+    }
+  }
+
+  /** The API no longer accepts the token: forget the local session (Keycloak's may live on). */
+  async clearSession(): Promise<void> {
+    this._user.set(null);
+    await this.userManager.removeUser();
+  }
+
+  /**
+   * Re-reads the session after the page was restored from the back-forward cache, where in-memory
+   * state (including "signing out") is a snapshot from before the user left.
+   */
+  async revalidate(): Promise<void> {
+    this._signingOut.set(false);
+    await this.init();
   }
 }

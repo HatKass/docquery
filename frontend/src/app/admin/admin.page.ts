@@ -2,6 +2,7 @@ import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ConfirmDialog } from '../shared/confirm-dialog';
+import { LoadError } from '../shared/load-error';
 import { problemMessage } from '../shared/problem';
 import { UsageReportView } from '../usage/usage-report';
 import { UsageReport } from '../usage/usage.model';
@@ -14,6 +15,8 @@ import {
   FailedDocument,
 } from './admin.model';
 
+type Section = 'overview' | 'usage' | 'failures' | 'deadLetters' | 'users';
+
 const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY', 'FAILED'];
 
 /**
@@ -22,7 +25,7 @@ const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY'
  */
 @Component({
   selector: 'app-admin-page',
-  imports: [DatePipe, UsageReportView],
+  imports: [DatePipe, UsageReportView, LoadError],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="mx-auto max-w-6xl space-y-6">
@@ -39,7 +42,11 @@ const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY'
       }
 
       <!-- Overview -->
-      @if (overview(); as o) {
+      @if (errors().overview; as e) {
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <app-load-error what="pipeline status" [message]="e" (retry)="loadOverview()" />
+        </div>
+      } @else if (overview(); as o) {
         <div
           class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"
           data-testid="admin-overview"
@@ -97,7 +104,9 @@ const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY'
           </label>
         </div>
         <div class="mt-4">
-          @if (usage(); as u) {
+          @if (errors().usage; as e) {
+            <app-load-error what="usage" [message]="e" (retry)="loadUsage()" />
+          } @else if (usage(); as u) {
             <app-usage-report [report]="u" [showWorkspaces]="true" />
           } @else {
             <p class="text-sm text-slate-500">Loading…</p>
@@ -111,6 +120,11 @@ const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY'
         <p class="mt-1 text-sm text-slate-500">
           Documents whose ingestion failed, in any workspace. Retry queues them again.
         </p>
+        @if (errors().failures; as e) {
+          <div class="mt-3">
+            <app-load-error what="failed documents" [message]="e" (retry)="loadFailures()" />
+          </div>
+        }
         <ul class="mt-3 divide-y divide-slate-100" data-testid="failures">
           @for (f of failures(); track f.documentId) {
             <li class="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
@@ -132,7 +146,9 @@ const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY'
               </button>
             </li>
           } @empty {
-            <li class="py-3 text-sm text-slate-500">No failed documents.</li>
+            @if (!errors().failures) {
+              <li class="py-3 text-sm text-slate-500">No failed documents.</li>
+            }
           }
         </ul>
       </div>
@@ -160,6 +176,11 @@ const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY'
           Ingestion events the worker gave up on (topic document.uploaded.dlt). Retry queues the
           document again with a new event.
         </p>
+        @if (errors().deadLetters; as e) {
+          <div class="mt-3">
+            <app-load-error what="dead-letter events" [message]="e" (retry)="loadDeadLetters()" />
+          </div>
+        }
         <ul class="mt-3 divide-y divide-slate-100" data-testid="dead-letters">
           @for (d of deadLetters(); track d.id) {
             <li class="py-3">
@@ -244,11 +265,15 @@ const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY'
               </details>
             </li>
           } @empty {
-            <li class="py-3 text-sm text-slate-500">
-              No
-              {{ deadLetterFilter() === 'ALL' ? '' : deadLetterFilter().toLowerCase() }} dead-letter
-              events.
-            </li>
+            @if (!errors().deadLetters) {
+              <li class="py-3 text-sm text-slate-500">
+                No
+                {{
+                  deadLetterFilter() === 'ALL' ? '' : deadLetterFilter().toLowerCase()
+                }}
+                dead-letter events.
+              </li>
+            }
           }
         </ul>
       </div>
@@ -273,6 +298,11 @@ const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY'
             Search
           </button>
         </form>
+        @if (errors().users; as e) {
+          <div class="mt-3">
+            <app-load-error what="users" [message]="e" (retry)="loadUsers()" />
+          </div>
+        }
         <div class="mt-3 overflow-x-auto">
           <table class="w-full min-w-[36rem] text-left text-sm" data-testid="admin-users">
             <thead class="text-xs text-slate-500">
@@ -328,9 +358,11 @@ const STATUS_ORDER = ['UPLOADED', 'EXTRACTING', 'CHUNKING', 'EMBEDDING', 'READY'
                   </td>
                 </tr>
               } @empty {
-                <tr>
-                  <td colspan="4" class="py-2 text-slate-500">No users found.</td>
-                </tr>
+                @if (!errors().users) {
+                  <tr>
+                    <td colspan="4" class="py-2 text-slate-500">No users found.</td>
+                  </tr>
+                }
               }
             </tbody>
           </table>
@@ -354,6 +386,8 @@ export class AdminPage {
   protected readonly userQuery = signal('');
   protected readonly busy = signal(false);
   protected readonly notice = signal<{ text: string; error: boolean } | null>(null);
+  /** Sections whose last load failed: they show an error with "Try again", never an empty state. */
+  protected readonly errors = signal<Partial<Record<Section, string>>>({});
 
   constructor() {
     void this.refresh();
@@ -468,46 +502,62 @@ export class AdminPage {
     await this.refresh();
   }
 
-  private async loadOverview(): Promise<void> {
+  protected async loadOverview(): Promise<void> {
     await this.load(
+      'overview',
       () => firstValueFrom(this.api.overview()),
       (o) => this.overview.set(o),
     );
   }
 
-  private async loadUsage(): Promise<void> {
+  protected async loadUsage(): Promise<void> {
     await this.load(
+      'usage',
       () => firstValueFrom(this.api.usage(this.days())),
       (u) => this.usage.set(u),
     );
   }
 
-  private async loadFailures(): Promise<void> {
+  protected async loadFailures(): Promise<void> {
     await this.load(
+      'failures',
       () => firstValueFrom(this.api.failures()),
       (f) => this.failures.set(f),
+      () => this.failures.set([]),
     );
   }
 
-  private async loadDeadLetters(): Promise<void> {
+  protected async loadDeadLetters(): Promise<void> {
     await this.load(
+      'deadLetters',
       () => firstValueFrom(this.api.deadLetters(this.deadLetterFilter())),
       (d) => this.deadLetters.set(d),
+      () => this.deadLetters.set([]),
     );
   }
 
-  private async loadUsers(): Promise<void> {
+  protected async loadUsers(): Promise<void> {
     await this.load(
+      'users',
       () => firstValueFrom(this.api.users(this.userQuery().trim())),
       (u) => this.users.set(u),
+      () => this.users.set([]),
     );
   }
 
-  private async load<T>(request: () => Promise<T>, apply: (value: T) => void): Promise<void> {
+  /** On failure the section shows the error (and drops data that may be stale), not an empty state. */
+  private async load<T>(
+    section: Section,
+    request: () => Promise<T>,
+    apply: (value: T) => void,
+    clear?: () => void,
+  ): Promise<void> {
     try {
       apply(await request());
+      this.errors.update(({ [section]: _, ...rest }) => rest);
     } catch (e) {
-      this.notice.set({ text: problemMessage(e), error: true });
+      clear?.();
+      this.errors.update((errors) => ({ ...errors, [section]: problemMessage(e) }));
     }
   }
 }

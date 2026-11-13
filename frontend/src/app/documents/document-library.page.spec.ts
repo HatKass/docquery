@@ -74,7 +74,11 @@ describe('DocumentLibraryPage', () => {
     http.expectOne('/api/workspaces/demo/documents').flush(documents);
     await fixture.whenStable();
     const el = fixture.nativeElement as HTMLElement;
-    return { fixture, el, rows: () => Array.from(el.querySelectorAll('[data-testid="document-table"] tbody tr')) };
+    return {
+      fixture,
+      el,
+      rows: () => Array.from(el.querySelectorAll('[data-testid="document-table"] tbody tr')),
+    };
   }
 
   it('lists documents with status, counts and size', async () => {
@@ -87,7 +91,46 @@ describe('DocumentLibraryPage', () => {
     expect(rows()[0].textContent).toContain('Ready');
     expect(rows()[0].textContent).toContain('12');
     expect(rows()[0].textContent).toContain('2.5 MB');
-    expect(el.querySelector('[data-testid="failure-reason"]')?.textContent).toContain('password-protected');
+    expect(el.querySelector('[data-testid="failure-reason"]')?.textContent).toContain(
+      'password-protected',
+    );
+  });
+
+  it('shows an error with "Try again" instead of "No documents yet" when the list fails to load', async () => {
+    const fixture = TestBed.createComponent(DocumentLibraryPage);
+    fixture.componentRef.setInput('workspaceId', 'demo');
+    fixture.detectChanges();
+    http.expectOne('/api/me').flush({
+      id: 'u1',
+      username: 'x',
+      email: null,
+      displayName: 'X',
+      workspaces: [
+        { id: 'demo', name: 'Demo workspace', role: 'MEMBER', memberCount: 3, createdAt: '' },
+      ],
+    });
+    await tick();
+    http.expectOne('/api/documents/upload-policy').flush(policy);
+    http
+      .expectOne('/api/workspaces/demo/documents')
+      .flush({ detail: 'The service is unavailable.' }, { status: 503, statusText: 'Unavailable' });
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+
+    expect(el.querySelector('[data-testid="load-error"]')?.textContent).toContain(
+      "Couldn't load documents.",
+    );
+    expect(el.querySelector('[data-testid="load-error"]')?.textContent).toContain(
+      'The service is unavailable.',
+    );
+    expect(el.querySelector('[data-testid="no-documents"]')).toBeNull();
+    expect(el.querySelector('[data-testid="library-error"]')).toBeNull();
+
+    el.querySelector<HTMLButtonElement>('[data-testid="load-error-retry"]')!.click();
+    http.expectOne('/api/workspaces/demo/documents').flush([]);
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="load-error"]')).toBeNull();
+    expect(el.querySelector('[data-testid="no-documents"]')).not.toBeNull();
   });
 
   it('hides upload and delete from viewers', async () => {
@@ -100,7 +143,9 @@ describe('DocumentLibraryPage', () => {
   it('shows the upload zone with the limits to members', async () => {
     const { el } = await open('MEMBER', []);
     expect(el.querySelector('[data-testid="upload-zone"]')?.textContent).toContain('up to 1.0 MB');
-    expect(el.querySelector<HTMLInputElement>('[data-testid="file-input"]')?.accept).toBe('.docx,.md,.pdf,.txt');
+    expect(el.querySelector<HTMLInputElement>('[data-testid="file-input"]')?.accept).toBe(
+      '.docx,.md,.pdf,.txt',
+    );
     expect(el.querySelector('[data-testid="no-documents"]')).not.toBeNull();
   });
 
@@ -164,7 +209,8 @@ describe('DocumentLibraryPage', () => {
       doc('bad', { status: 'FAILED', failureReason: 'The embedding service was unavailable.' }),
       doc('busy', { status: 'EMBEDDING' }),
     ]);
-    const action = (row: Element) => row.querySelector<HTMLButtonElement>('[data-testid="reindex"]');
+    const action = (row: Element) =>
+      row.querySelector<HTMLButtonElement>('[data-testid="reindex"]');
     expect(action(rows()[0])?.textContent?.trim()).toBe('Re-index');
     expect(action(rows()[1])?.textContent?.trim()).toBe('Retry');
     expect(action(rows()[2])).toBeNull();
@@ -212,7 +258,10 @@ describe('DocumentLibraryPage', () => {
     afterEach(() => confirmDialog.cleanUp());
 
     async function clickDelete(id: string) {
-      const page = await open('MEMBER', [doc('keep'), doc('CIN', { filename: 'CIN.pdf', status: 'READY' })]);
+      const page = await open('MEMBER', [
+        doc('keep'),
+        doc('CIN', { filename: 'CIN.pdf', status: 'READY' }),
+      ]);
       const row = page.rows().find((r) => r.getAttribute('data-document-id') === id)!;
       const button = row.querySelector<HTMLButtonElement>('[data-testid="delete-document"]')!;
       button.focus();
@@ -227,7 +276,9 @@ describe('DocumentLibraryPage', () => {
       expect(button.getAttribute('aria-label')).toBe('Delete CIN.pdf');
       expect(confirmDialog.variant()).toBe('danger');
       expect(confirmDialog.title()).toBe('Delete CIN.pdf?');
-      expect(confirmDialog.message()).toContain('The file, its text chunks and embeddings will be permanently removed');
+      expect(confirmDialog.message()).toContain(
+        'The file, its text chunks and embeddings will be permanently removed',
+      );
       expect(confirmDialog.accept().textContent?.trim()).toBe('Delete document');
       confirmDialog.cancel().click();
     });
@@ -261,10 +312,12 @@ describe('DocumentLibraryPage', () => {
       const { rows } = await clickDelete('CIN');
 
       confirmDialog.accept().click();
-      http.expectOne('/api/workspaces/demo/documents/CIN').flush(
-        { detail: 'This action requires the MEMBER role in this workspace; you are VIEWER.' },
-        { status: 403, statusText: 'Forbidden' },
-      );
+      http
+        .expectOne('/api/workspaces/demo/documents/CIN')
+        .flush(
+          { detail: 'This action requires the MEMBER role in this workspace; you are VIEWER.' },
+          { status: 403, statusText: 'Forbidden' },
+        );
       await tick();
 
       expect(confirmDialog.element()).not.toBeNull();
@@ -286,13 +339,20 @@ describe('DocumentLibraryPage', () => {
     const { fixture, el } = await open('MEMBER', []);
 
     const uploading = fixture.componentInstance.uploadAll([new File(['MZ'], 'invoice.pdf')]);
-    http.expectOne('/api/workspaces/demo/documents').flush(
-      { type: 'urn:docquery:problem:file-content-mismatch', detail: "The content of 'invoice.pdf' is not a valid PDF file." },
-      { status: 415, statusText: 'Unsupported Media Type' },
-    );
+    http
+      .expectOne('/api/workspaces/demo/documents')
+      .flush(
+        {
+          type: 'urn:docquery:problem:file-content-mismatch',
+          detail: "The content of 'invoice.pdf' is not a valid PDF file.",
+        },
+        { status: 415, statusText: 'Unsupported Media Type' },
+      );
     await uploading;
     await fixture.whenStable();
 
-    expect(el.querySelector('[data-testid="pending-uploads"] [role="alert"]')?.textContent).toContain('not a valid PDF');
+    expect(
+      el.querySelector('[data-testid="pending-uploads"] [role="alert"]')?.textContent,
+    ).toContain('not a valid PDF');
   });
 });

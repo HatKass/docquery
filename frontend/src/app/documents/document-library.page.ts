@@ -13,6 +13,7 @@ import {
 import { Subscription, firstValueFrom } from 'rxjs';
 import { fileExtension, formatBytes } from '../shared/format';
 import { ConfirmDialog } from '../shared/confirm-dialog';
+import { LoadError } from '../shared/load-error';
 import { problemMessage } from '../shared/problem';
 import { WorkspaceContext } from '../workspaces/workspace-context.service';
 import { DocumentApi } from './document-api.service';
@@ -49,7 +50,7 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
  */
 @Component({
   selector: 'app-document-library-page',
-  imports: [DatePipe],
+  imports: [DatePipe, LoadError],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (notFound()) {
@@ -127,6 +128,10 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
         <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           @if (loading() && !documents().length) {
             <p class="p-6 text-sm text-slate-500">Loading documents…</p>
+          } @else if (listError(); as e) {
+            <div class="p-4">
+              <app-load-error what="documents" [message]="e" (retry)="retryList()" />
+            </div>
           } @else if (!documents().length) {
             <p class="p-6 text-sm text-slate-600" data-testid="no-documents">
               No documents yet.{{ canUpload() ? ' Upload a PDF, Word, text or Markdown file to get started.' : '' }}
@@ -261,6 +266,8 @@ export class DocumentLibraryPage {
   protected readonly policy = signal<UploadPolicy | null>(null);
   protected readonly pending = signal<PendingUpload[]>([]);
   protected readonly loading = signal(false);
+  /** The document list could not be loaded: shown instead of "No documents yet". */
+  protected readonly listError = signal<string | null>(null);
   protected readonly notFound = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly streamState = signal<StreamState>('connecting');
@@ -312,6 +319,7 @@ export class DocumentLibraryPage {
     this.notFound.set(false);
     this.error.set(null);
     this.documents.set([]);
+    this.listError.set(null);
     this.pending.set([]);
     try {
       if (!this.context.loaded()) {
@@ -331,7 +339,9 @@ export class DocumentLibraryPage {
       this.connect(id);
       await this.reload();
     } catch (e) {
-      this.error.set(problemMessage(e));
+      if (!this.listError()) {
+        this.error.set(problemMessage(e));
+      }
     }
   }
 
@@ -374,10 +384,21 @@ export class DocumentLibraryPage {
       const docs = await firstValueFrom(this.api.list(id));
       if (id === this.workspaceId()) {
         this.documents.set(docs);
+        this.listError.set(null);
       }
+    } catch (e) {
+      if (id === this.workspaceId()) {
+        this.documents.set([]);
+        this.listError.set(problemMessage(e));
+      }
+      throw e;
     } finally {
       this.loading.set(false);
     }
+  }
+
+  protected retryList(): void {
+    void this.reload().catch(() => undefined);
   }
 
   private upsert(doc: DocumentSummary): void {

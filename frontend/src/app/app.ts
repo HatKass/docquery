@@ -6,11 +6,13 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { AuthService } from './auth/auth.service';
+import { SessionWatch } from './auth/session-watch.service';
 import { AppNav } from './shell/app-nav';
 import { Icon } from './shell/icon';
 import { UserMenu } from './shell/user-menu';
@@ -28,11 +30,15 @@ import { WorkspaceSwitcher } from './workspaces/workspace-switcher';
   imports: [RouterOutlet, RouterLink, WorkspaceSwitcher, AppNav, UserMenu, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.html',
-  host: { '(document:keydown.escape)': 'closeMenu(true)' },
+  host: {
+    '(document:keydown.escape)': 'closeMenu(true)',
+    '(window:pageshow)': 'onPageShow($event)',
+  },
 })
 export class App {
   protected readonly auth = inject(AuthService);
   protected readonly context = inject(WorkspaceContext);
+  private readonly session = inject(SessionWatch);
 
   protected readonly menuOpen = signal(false);
   private readonly menuButton = viewChild<ElementRef<HTMLButtonElement>>('menuButton');
@@ -48,6 +54,8 @@ export class App {
         }
       } else {
         this.context.clear();
+        // Session ended while on a protected page (token expired, 401): go to the signed-out home.
+        untracked(() => void this.session.leaveIfSignedOut());
       }
     });
     // Move focus into the drawer when it opens.
@@ -61,6 +69,17 @@ export class App {
       .events.pipe(filter((e) => e instanceof NavigationEnd))
       .subscribe(() => this.closeMenu());
     inject(DestroyRef).onDestroy(() => subscription.unsubscribe());
+  }
+
+  /**
+   * Back/Forward can restore this page from the browser's back-forward cache, frozen as it was when
+   * the user left (e.g. mid sign-out). Guards do not run again then, so re-check the session here.
+   */
+  protected onPageShow(event: PageTransitionEvent): void {
+    if (event.persisted) {
+      this.closeMenu();
+      void this.session.onPageRestored();
+    }
   }
 
   protected openMenu(): void {

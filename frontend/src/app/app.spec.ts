@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { App } from './app';
 import { AuthService } from './auth/auth.service';
 import {
@@ -100,6 +100,54 @@ describe('App shell', () => {
     await fixture.whenStable();
     (el.querySelector('[data-testid="sign-out"]') as HTMLButtonElement).click();
     expect(fake.signoutRedirect).toHaveBeenCalled();
+  });
+
+  describe('back-forward cache', () => {
+    function pageshow(persisted: boolean) {
+      const event = new Event('pageshow');
+      Object.defineProperty(event, 'persisted', { value: persisted });
+      window.dispatchEvent(event);
+    }
+
+    it('re-checks the session when a page is restored after sign-out, and leaves the protected page', async () => {
+      const { fixture } = await signedIn(true);
+      const router = TestBed.inject(Router);
+      await router.navigateByUrl('/admin');
+      // Signed out meanwhile (the session was removed before leaving for Keycloak).
+      fake.storedUser = null;
+
+      pageshow(true);
+      await settle();
+      await fixture.whenStable();
+
+      expect(router.url).toBe('/?returnUrl=%2Fadmin');
+      expect(fixture.nativeElement.querySelector('[data-testid="user-menu-button"]')).toBeNull();
+    });
+
+    it('ignores normal page loads and restores while still signed in', async () => {
+      const { fixture } = await signedIn();
+      const router = TestBed.inject(Router);
+      await router.navigateByUrl('/admin');
+
+      pageshow(false);
+      pageshow(true);
+      await settle();
+      await fixture.whenStable();
+
+      expect(router.url).toBe('/admin');
+    });
+  });
+
+  it('leaves a protected page when the session expires', async () => {
+    const { fixture } = await signedIn();
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/workspaces/demo/chat');
+
+    fake.emit('expired');
+    await settle();
+    await fixture.whenStable();
+
+    expect(router.url).toBe('/?returnUrl=%2Fworkspaces%2Fdemo%2Fchat');
   });
 
   describe('mobile navigation', () => {

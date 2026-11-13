@@ -328,6 +328,42 @@ describe('AdminPage', () => {
     });
   });
 
+  it('shows an error with "Try again" instead of an empty list when loading fails', async () => {
+    const fixture = TestBed.createComponent(AdminPage);
+    fixture.detectChanges();
+    const failed = { status: 500, statusText: 'Server Error' };
+    http.expectOne('/api/admin/overview').flush({ detail: 'Database unavailable.' }, failed);
+    http.expectOne('/api/admin/usage?days=30').flush(REPORT);
+    http.expectOne('/api/admin/failures').flush({ detail: 'Database unavailable.' }, failed);
+    http
+      .expectOne('/api/admin/dead-letters?status=PENDING')
+      .flush({ detail: 'Database unavailable.' }, failed);
+    http.expectOne('/api/admin/users').flush({ detail: 'Database unavailable.' }, failed);
+    await settle();
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+
+    const errors = Array.from(el.querySelectorAll('[data-testid="load-error"]')).map(
+      (e) => e.textContent,
+    );
+    expect(errors).toHaveLength(4);
+    expect(errors[0]).toContain("Couldn't load pipeline status.");
+    expect(errors.join()).toContain('Database unavailable.');
+    expect(el.textContent).not.toContain('No failed documents');
+    expect(el.textContent).not.toContain('No pending dead-letter events');
+    expect(el.textContent).not.toContain('No users found');
+
+    // "Try again" on the failed documents section reloads just that section.
+    el.querySelectorAll<HTMLButtonElement>('[data-testid="load-error-retry"]')[1].click();
+    http.expectOne('/api/admin/failures').flush([]);
+    await settle();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="failures"]')?.textContent).toContain(
+      'No failed documents',
+    );
+    expect(el.querySelectorAll('[data-testid="load-error"]')).toHaveLength(3);
+  });
+
   it('rejects a negative limit without calling the API', async () => {
     const { fixture, el } = await open();
     el.querySelector<HTMLInputElement>('#limit-u9')!.value = '-2';
