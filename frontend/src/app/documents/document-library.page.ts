@@ -15,7 +15,6 @@ import { fileExtension, formatBytes } from '../shared/format';
 import { ConfirmDialog } from '../shared/confirm-dialog';
 import { problemMessage } from '../shared/problem';
 import { WorkspaceContext } from '../workspaces/workspace-context.service';
-import { WorkspaceNav } from '../workspaces/workspace-nav';
 import { DocumentApi } from './document-api.service';
 import { DocumentEvents, StreamRejectedError } from './document-events.service';
 import { DocumentOpener } from './document-opener.service';
@@ -50,7 +49,7 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
  */
 @Component({
   selector: 'app-document-library-page',
-  imports: [DatePipe, WorkspaceNav],
+  imports: [DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (notFound()) {
@@ -68,7 +67,6 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
               {{ streamLabel() }}
             </span>
           </div>
-          <div class="mt-4"><app-workspace-nav [workspaceId]="ws.id" /></div>
         </div>
 
         @if (canUpload()) {

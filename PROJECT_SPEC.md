@@ -121,7 +121,16 @@ Phase 9 (Kubernetes & deployment):
 - Live updates (SSE) only reach browsers connected to the replica that consumed the status event (ADR 0007). With more than one api-service replica, fan out status events to all replicas (e.g. per-replica Kafka consumer group or Postgres LISTEN/NOTIFY) and test it.
 - Use a cloud chat model for the public demo (llama3.2:3b is not reliable enough at following grounding rules). Document the model choice with the evaluation numbers.
 - CI: the Keycloak Testcontainer can take ~2.5 min to start; keep the 5-min timeout and watch CI duration.
+- Before the public demo, add per-user question-quota overrides and a platform-wide daily spending cap (stop cloud-model calls when the daily estimated cost reaches a configured limit).
 
 General:
 - Every new workspace-scoped endpoint must be added to TenantIsolationTests (the test already enforces this).
 - Never use "latest" tags for runners or images; pin versions.
+
+## 10. UI standards (apply to every phase)
+- Every page and component must be responsive (mobile, tablet, desktop) and checked in the browser at mobile and desktop widths before a phase is done.
+- Accessible by default: keyboard navigation, visible focus states, aria labels, sufficient contrast.
+- Never use window.confirm/alert/prompt; use the shared ConfirmDialog for every destructive or permission-changing action.
+- All interactive elements show a pointer cursor; disabled ones show not-allowed.
+- Tailwind only, consistent spacing and states, matching the existing app shell.
+- Friendly user-facing error messages; technical details only in expandable "Details" sections (admin) or logs.

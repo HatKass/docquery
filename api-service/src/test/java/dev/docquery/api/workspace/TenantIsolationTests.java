@@ -91,7 +91,8 @@ class TenantIsolationTests extends ApiIntegrationTest {
 				new Endpoint("GET", "/api/workspaces/{workspaceId}/conversations/{conversationId}"),
 				new Endpoint("DELETE", "/api/workspaces/{workspaceId}/conversations/{conversationId}"),
 				new Endpoint("POST", "/api/workspaces/{workspaceId}/conversations/{conversationId}/messages",
-						"{\"question\":\"What does the secret document say?\"}"));
+						"{\"question\":\"What does the secret document say?\"}"),
+				new Endpoint("GET", "/api/workspaces/{workspaceId}/usage", null, "days=30"));
 	}
 
 	/** Endpoints addressing one document: also tried with the outsider's own workspace id. */

@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { confirmDialog } from '../shared/testing/confirm-dialog.harness';
+import { REPORT } from '../usage/testing/usage-fixtures';
 import { WorkspaceDetailPage } from './workspace-detail.page';
 import { Member, WorkspaceRole } from './workspace.model';
 
@@ -29,6 +30,8 @@ describe('WorkspaceDetailPage', () => {
   });
 
   afterEach(() => {
+    // Owners also load the usage card; tests that do not look at it just answer it.
+    http.match('/api/workspaces/demo/usage?days=30').forEach((r) => r.flush(REPORT));
     http.verify();
     confirmDialog.cleanUp();
   });
@@ -38,6 +41,7 @@ describe('WorkspaceDetailPage', () => {
     username: 'x',
     email: null,
     displayName: 'X',
+    admin: false,
     workspaces: myRole ? [{ id: 'demo', name: 'Demo workspace', role: myRole, memberCount: 3, createdAt: '' }] : [],
   });
 
@@ -73,6 +77,24 @@ describe('WorkspaceDetailPage', () => {
     select.dispatchEvent(new Event('change'));
     return select;
   }
+
+  it('shows owners the workspace usage and cost', async () => {
+    const { fixture, el } = await open('demo', 'OWNER', 'u1');
+    http.expectOne('/api/workspaces/demo/usage?days=30').flush(REPORT);
+    await settle();
+    fixture.detectChanges();
+
+    const usage = el.querySelector('[data-testid="workspace-usage"]')!;
+    expect(usage.querySelector('[data-testid="total-cost"]')?.textContent).toContain('$0.0042');
+    expect(usage.querySelector('[data-testid="usage-by-user"]')?.textContent).toContain('Olivia Owner');
+    expect(usage.querySelector('[data-testid="unpriced"]')?.textContent).toContain('mystery-model');
+  });
+
+  it('does not load usage for members who are not owners', async () => {
+    const { el } = await open('demo', 'MEMBER', 'u2');
+    expect(el.querySelector('[data-testid="workspace-usage"]')).toBeNull();
+    http.expectNone('/api/workspaces/demo/usage?days=30');
+  });
 
   it('shows members and management controls to owners', async () => {
     const { el } = await open('demo', 'OWNER', 'u1');

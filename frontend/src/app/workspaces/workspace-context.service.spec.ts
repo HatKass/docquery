@@ -17,6 +17,7 @@ const me = (workspaces: Workspace[]): Me => ({
   username: 'owner',
   email: 'owner@docquery.local',
   displayName: 'Olivia Owner',
+  admin: false,
   workspaces,
 });
 

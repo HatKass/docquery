@@ -3,9 +3,9 @@ import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { ConfirmDialog, ConfirmOptions } from '../shared/confirm-dialog';
 import { problemMessage } from '../shared/problem';
+import { WorkspaceUsage } from '../usage/workspace-usage';
 import { WorkspaceApi } from './workspace-api.service';
 import { WorkspaceContext } from './workspace-context.service';
-import { WorkspaceNav } from './workspace-nav';
 import { Member, WORKSPACE_ROLES, WorkspaceRole } from './workspace.model';
 
 /** What each role allows, shown when changing someone's role. */
@@ -21,7 +21,7 @@ const ROLE_CONSEQUENCES: Record<WorkspaceRole, string> = {
  */
 @Component({
   selector: 'app-workspace-detail-page',
-  imports: [WorkspaceNav],
+  imports: [WorkspaceUsage],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (notFound()) {
@@ -56,7 +56,6 @@ const ROLE_CONSEQUENCES: Record<WorkspaceRole, string> = {
               </form>
             }
           </div>
-          <div class="mt-4"><app-workspace-nav [workspaceId]="ws.id" /></div>
         </div>
 
         <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -157,6 +156,7 @@ const ROLE_CONSEQUENCES: Record<WorkspaceRole, string> = {
         </div>
 
         @if (isOwner()) {
+          <app-workspace-usage [workspaceId]="ws.id" />
           <div class="rounded-xl border border-red-200 bg-white p-4 sm:p-6">
             <h3 class="font-semibold text-red-800">Delete workspace</h3>
             <p class="mt-1 text-sm text-slate-600">Removes the workspace for everyone. This cannot be undone.</p>

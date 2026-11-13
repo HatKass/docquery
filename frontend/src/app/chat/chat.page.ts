@@ -17,9 +17,10 @@ import { Subscription, firstValueFrom } from 'rxjs';
 import { DocumentApi } from '../documents/document-api.service';
 import { DocumentOpener } from '../documents/document-opener.service';
 import { ConfirmDialog } from '../shared/confirm-dialog';
+import { UsageApi } from '../usage/usage-api.service';
+import { QuotaStatus } from '../usage/usage.model';
 import { problemMessage } from '../shared/problem';
 import { WorkspaceContext } from '../workspaces/workspace-context.service';
-import { WorkspaceNav } from '../workspaces/workspace-nav';
 import { AnswerContent } from './answer-content';
 import { citationLabel } from './answer-segments';
 import { AnswerStream, AskRejectedError } from './answer-stream.service';
@@ -39,7 +40,7 @@ interface PendingAnswer {
  */
 @Component({
   selector: 'app-chat-page',
-  imports: [DatePipe, WorkspaceNav, AnswerContent],
+  imports: [DatePipe, AnswerContent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (notFound()) {
@@ -51,7 +52,6 @@ interface PendingAnswer {
       <section class="mx-auto max-w-6xl space-y-6">
         <div>
           <h2 class="truncate text-xl font-semibold text-slate-900" data-testid="workspace-name">{{ ws.name }}</h2>
-          <div class="mt-4"><app-workspace-nav [workspaceId]="ws.id" /></div>
         </div>
 
         <!-- Desktop: conversations | messages | citation viewer. Phones and tablets: one column, the
@@ -218,6 +218,15 @@ interface PendingAnswer {
                 </button>
               }
             </form>
+            @if (questionQuota(); as q) {
+              <p class="px-3 pb-2 text-xs" [class]="q.remaining === 0 ? 'text-red-700' : 'text-slate-500'" data-testid="question-quota">
+                @if (q.remaining === 0) {
+                  You have used all {{ q.limit }} questions for today. The limit resets at midnight UTC.
+                } @else {
+                  {{ q.remaining }} of {{ q.limit }} questions left today.
+                }
+              </p>
+            }
           </div>
 
           <!-- Citation viewer: a column on desktop, a bottom sheet over a backdrop on smaller screens. -->
@@ -271,6 +280,7 @@ export class ChatPage {
   readonly conversation = input<string | undefined>();
 
   private readonly chat = inject(ChatApi);
+  private readonly usage = inject(UsageApi);
   private readonly answers = inject(AnswerStream);
   private readonly documents = inject(DocumentApi);
   private readonly opener = inject(DocumentOpener);
@@ -286,6 +296,8 @@ export class ChatPage {
   protected readonly selected = signal<Citation | null>(null);
   protected readonly draft = signal('');
   protected readonly error = signal<string | null>(null);
+  /** The daily question quota; null while unknown or when there is no limit. */
+  protected readonly questionQuota = signal<QuotaStatus | null>(null);
   protected readonly notFound = signal(false);
   protected readonly readyCount = signal<number | null>(null);
   /** Phones and tablets only: whether the conversation list is expanded. */
@@ -317,6 +329,7 @@ export class ChatPage {
 
   private async show(id: string): Promise<void> {
     this.stop();
+    void this.refreshQuota();
     this.notFound.set(false);
     this.error.set(null);
     this.messages.set([]);
@@ -430,6 +443,7 @@ export class ChatPage {
       },
       error: (e: unknown) => {
         this.pending.set(null);
+        void this.refreshQuota();
         if (e instanceof AskRejectedError) {
           this.draft.set(question); // nothing was stored: let the user fix and resend
           this.error.set(e.message);
@@ -437,7 +451,10 @@ export class ChatPage {
           this.error.set('The connection was lost while answering. Reload the conversation to see what was saved.');
         }
       },
-      complete: () => void this.refreshList(),
+      complete: () => {
+        void this.refreshList();
+        void this.refreshQuota();
+      },
     });
   }
 
@@ -499,6 +516,16 @@ export class ChatPage {
       );
     } catch (e) {
       this.error.set(problemMessage(e));
+    }
+  }
+
+  /** Best effort: the hint simply stays hidden if the quota cannot be loaded. */
+  private async refreshQuota(): Promise<void> {
+    try {
+      const quotas = await firstValueFrom(this.usage.myQuotas());
+      this.questionQuota.set(quotas.questionsToday.limit === null ? null : quotas.questionsToday);
+    } catch {
+      this.questionQuota.set(null);
     }
   }
 

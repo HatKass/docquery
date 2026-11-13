@@ -25,5 +25,7 @@ export interface Me {
   username: string;
   email: string | null;
   displayName: string;
+  /** Platform admin (Keycloak realm role): may open the admin page. */
+  admin: boolean;
   workspaces: Workspace[];
 }

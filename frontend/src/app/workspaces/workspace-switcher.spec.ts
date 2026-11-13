@@ -27,13 +27,14 @@ describe('WorkspaceSwitcher', () => {
     return { fixture, context, el: fixture.nativeElement as HTMLElement };
   }
 
-  it('lists every workspace with the role', async () => {
+  it('lists every workspace and shows the role in the current one as a badge', async () => {
     const { el } = await render([
       { id: 'a', name: 'Alpha', role: 'OWNER' },
       { id: 'b', name: 'Beta', role: 'VIEWER' },
     ]);
     const options = Array.from(el.querySelectorAll('option')).map((o) => o.textContent?.trim());
-    expect(options).toEqual(['Alpha · OWNER', 'Beta · VIEWER']);
+    expect(options).toEqual(['Alpha', 'Beta']);
+    expect(el.querySelector('[data-testid="role-badge"]')?.textContent?.trim()).toBe('OWNER');
   });
 
   it('switches workspace and navigates to it', async () => {
@@ -50,10 +51,29 @@ describe('WorkspaceSwitcher', () => {
 
     expect(context.current()?.id).toBe('b');
     expect(navigate).toHaveBeenCalledWith(['/workspaces', 'b']);
+    expect(el.querySelector('[data-testid="role-badge"]')?.textContent?.trim()).toBe('VIEWER');
   });
 
-  it('says so when the user has no workspace', async () => {
+  it('stays in the same section when switching from Ask or Members', async () => {
+    const { el, fixture } = await render([
+      { id: 'a', name: 'Alpha', role: 'OWNER' },
+      { id: 'b', name: 'Beta', role: 'VIEWER' },
+    ]);
+    const router = TestBed.inject(Router);
+    vi.spyOn(router, 'url', 'get').mockReturnValue('/workspaces/a/chat?conversation=c1');
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    const select = el.querySelector<HTMLSelectElement>('[data-testid="workspace-switcher"]')!;
+    select.value = 'b';
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(navigate).toHaveBeenCalledWith(['/workspaces', 'b', 'chat']);
+  });
+
+  it('offers to create one when the user has no workspace', async () => {
     const { el } = await render([]);
-    expect(el.textContent).toContain('No workspace yet');
+    expect(el.querySelector('a')?.textContent).toContain('Create a workspace');
+    expect(el.querySelector('[data-testid="role-badge"]')).toBeNull();
   });
 });

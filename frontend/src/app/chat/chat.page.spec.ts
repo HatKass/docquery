@@ -5,6 +5,8 @@ import { provideRouter } from '@angular/router';
 import { Subject } from 'rxjs';
 import { vi } from 'vitest';
 import { DocumentOpener } from '../documents/document-opener.service';
+import { QUOTAS } from '../usage/testing/usage-fixtures';
+import { MyQuotas } from '../usage/usage.model';
 import { AnswerStream } from './answer-stream.service';
 import { AnswerStreamEvent, ChatMessage, Citation } from './chat.model';
 import { ChatPage } from './chat.page';
@@ -51,11 +53,15 @@ describe('ChatPage', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    // The quota hint is refreshed after every answer; tests that do not look at it just answer it.
+    http.match('/api/me/quotas').forEach((r) => r.flush(QUOTAS));
+    http.verify();
+  });
 
   const tick = () => new Promise((r) => setTimeout(r));
 
-  async function open(conversations: { id: string; title: string }[] = [], messages: ChatMessage[] = []) {
+  async function open(conversations: { id: string; title: string }[] = [], messages: ChatMessage[] = [], quotas: MyQuotas = QUOTAS) {
     const fixture = TestBed.createComponent(ChatPage);
     fixture.componentRef.setInput('workspaceId', 'demo');
     fixture.detectChanges();
@@ -64,8 +70,10 @@ describe('ChatPage', () => {
       username: 'x',
       email: null,
       displayName: 'X',
+      admin: false,
       workspaces: [{ id: 'demo', name: 'Demo workspace', role: 'VIEWER', memberCount: 3, createdAt: '' }],
     });
+    http.expectOne('/api/me/quotas').flush(quotas);
     await tick();
     http.expectOne('/api/workspaces/demo/documents').flush([{ id: 'd1', status: 'READY' }]);
     http.expectOne('/api/workspaces/demo/conversations').flush(
@@ -83,6 +91,16 @@ describe('ChatPage', () => {
   }
 
   const el = (fixture: { nativeElement: HTMLElement }) => fixture.nativeElement as HTMLElement;
+
+  it('shows how many questions are left today', async () => {
+    const fixture = await open();
+    expect(el(fixture).querySelector('[data-testid="question-quota"]')?.textContent).toContain('38 of 50 questions left today');
+  });
+
+  it('says when the daily question limit is used up', async () => {
+    const fixture = await open([], [], { ...QUOTAS, questionsToday: { used: 50, limit: 50, remaining: 0 } });
+    expect(el(fixture).querySelector('[data-testid="question-quota"]')?.textContent).toContain('used all 50 questions');
+  });
 
   it('shows the history of the most recent conversation with clickable citations', async () => {
     const fixture = await open(

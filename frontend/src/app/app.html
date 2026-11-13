@@ -1,28 +1,117 @@
 <div class="min-h-screen overflow-x-clip bg-slate-50">
-  <header class="border-b border-slate-200 bg-white">
-    <!-- Phones: logo + account on the first row, the workspace switcher on its own full-width row. -->
-    <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:px-6 sm:py-4">
-      <a routerLink="/" class="shrink-0"><h1 class="text-xl font-bold tracking-tight text-slate-900">DocQuery</h1></a>
+  <a
+    href="#main"
+    class="sr-only z-50 rounded-md bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow focus:not-sr-only focus:fixed focus:left-3 focus:top-3"
+    >Skip to content</a
+  >
+
+  <!-- Top bar -->
+  <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div class="flex h-14 items-center gap-2 px-3 sm:gap-3 sm:px-6">
       @if (auth.isAuthenticated()) {
-        <app-workspace-switcher class="order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1" />
-        <div class="ml-auto flex min-w-0 items-center gap-3 text-sm sm:ml-0">
-          <span class="hidden max-w-48 truncate text-slate-600 sm:inline" data-testid="user-name">{{ auth.displayName() }}</span>
-          <button
-            type="button"
-            data-testid="sign-out"
-            class="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50"
-            [title]="'Signed in as ' + auth.displayName()"
-            (click)="signOut()"
-          >
-            Sign out
-          </button>
+        <button
+          #menuButton
+          type="button"
+          class="-ml-1 rounded-md p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 xl:hidden"
+          aria-controls="mobile-nav"
+          [attr.aria-expanded]="menuOpen()"
+          aria-label="Open navigation"
+          data-testid="menu-button"
+          (click)="openMenu()"
+        >
+          <app-icon name="menu" class="size-6" />
+        </button>
+      }
+      <a
+        routerLink="/"
+        class="flex shrink-0 items-center gap-2 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        aria-label="DocQuery home"
+      >
+        <span
+          class="flex size-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white"
+          aria-hidden="true"
+          >DQ</span
+        >
+        <h1 class="text-lg font-bold tracking-tight text-slate-900">DocQuery</h1>
+      </a>
+      @if (auth.isAuthenticated()) {
+        <div class="ml-4 hidden min-w-0 flex-1 border-l border-slate-200 pl-4 md:block">
+          <app-workspace-switcher />
+        </div>
+        <div class="ml-auto shrink-0">
+          <app-user-menu />
         </div>
       } @else {
         <span class="ml-auto text-sm text-slate-500">AI document intelligence</span>
       }
     </div>
   </header>
-  <main class="px-4 py-6 sm:px-6 sm:py-10">
-    <router-outlet />
-  </main>
+
+  @if (auth.isAuthenticated()) {
+    <div class="flex">
+      <!-- Desktop sidebar -->
+      <aside
+        class="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white px-3 py-6 xl:block"
+        data-testid="sidebar"
+      >
+        <app-nav />
+      </aside>
+      <main
+        id="main"
+        tabindex="-1"
+        class="min-w-0 flex-1 px-4 py-6 focus:outline-none sm:px-6 sm:py-8"
+      >
+        <router-outlet />
+      </main>
+    </div>
+
+    <!-- Mobile and tablet navigation -->
+    @if (menuOpen()) {
+      <div class="fixed inset-0 z-40 xl:hidden" data-testid="mobile-nav-overlay">
+        <button
+          type="button"
+          class="absolute inset-0 h-full w-full cursor-default bg-slate-900/40"
+          tabindex="-1"
+          aria-hidden="true"
+          (click)="closeMenu()"
+        ></button>
+        <div
+          #drawer
+          id="mobile-nav"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation"
+          class="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col overflow-y-auto bg-white shadow-xl"
+          data-testid="mobile-nav"
+          (keydown)="onDrawerKeydown($event)"
+        >
+          <div
+            class="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-4"
+          >
+            <span class="text-lg font-bold tracking-tight text-slate-900">DocQuery</span>
+            <button
+              #closeButton
+              type="button"
+              class="rounded-md p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              aria-label="Close navigation"
+              data-testid="menu-close"
+              (click)="closeMenu()"
+            >
+              <app-icon name="close" class="size-5" />
+            </button>
+          </div>
+          <div class="border-b border-slate-200 px-4 py-3 md:hidden">
+            <app-workspace-switcher />
+          </div>
+          <div class="px-3 py-5">
+            <app-nav (navigate)="closeMenu()" />
+          </div>
+        </div>
+      </div>
+    }
+  } @else {
+    <main id="main" tabindex="-1" class="px-4 py-6 focus:outline-none sm:px-6 sm:py-10">
+      <router-outlet />
+    </main>
+  }
 </div>

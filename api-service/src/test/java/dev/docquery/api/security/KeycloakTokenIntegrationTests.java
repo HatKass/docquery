@@ -125,6 +125,23 @@ class KeycloakTokenIntegrationTests {
 			.header(HttpHeaders.AUTHORIZATION, "Bearer " + token)).hasStatus(HttpStatus.NOT_FOUND);
 	}
 
+	/** The docquery-admin realm role travels in realm_access.roles and unlocks /api/admin. */
+	@Test
+	void demoAdminIsRecognisedFromTheRealmRole() throws Exception {
+		String admin = passwordGrant("docquery", "docquery-dev-cli", "admin", "demo123");
+		String owner = passwordGrant("docquery", "docquery-dev-cli", "owner", "demo123");
+
+		assertThat(this.mvc.get().uri("/api/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)).hasStatusOk()
+			.bodyJson()
+			.extractingPath("$.admin")
+			.isEqualTo(true);
+		assertThat(this.mvc.get().uri("/api/admin/overview").header(HttpHeaders.AUTHORIZATION, "Bearer " + admin))
+			.hasStatusOk();
+		// A workspace OWNER is not a platform admin.
+		assertThat(this.mvc.get().uri("/api/admin/overview").header(HttpHeaders.AUTHORIZATION, "Bearer " + owner))
+			.hasStatus(HttpStatus.FORBIDDEN);
+	}
+
 	@Test
 	void tamperedTokenIsRejected() throws Exception {
 		String token = passwordGrant("docquery", "docquery-dev-cli", "viewer", "demo123");

@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { adminGuard } from './admin/admin.guard';
 import { authGuard } from './auth/auth.guard';
 
 export const routes: Routes = [
@@ -41,6 +42,12 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./workspaces/workspace-detail.page').then((m) => m.WorkspaceDetailPage),
     title: 'Members & settings · DocQuery',
+  },
+  {
+    path: 'admin',
+    canActivate: [authGuard, adminGuard],
+    loadComponent: () => import('./admin/admin.page').then((m) => m.AdminPage),
+    title: 'Admin · DocQuery',
   },
   { path: '**', redirectTo: '' },
 ];

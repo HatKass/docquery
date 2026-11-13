@@ -82,6 +82,8 @@ public class TestcontainersConfiguration {
 			registry.add("docquery.retrieval.query-prefix", () -> "");
 			// Bag-of-words stub vectors: one shared word already gives a clear similarity.
 			registry.add("docquery.retrieval.min-similarity", () -> "0.2");
+			// Prices for the stub models, so cost estimates are exercised (USD per 1M tokens).
+			registry.add("docquery.usage.prices", () -> StubChatModel.MODEL + "=1/2;" + StubEmbeddingModel.MODEL + "=0.5/0");
 		};
 	}
 
