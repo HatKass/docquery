@@ -15,7 +15,7 @@ context → decision → consequences. ADRs are immutable once accepted; a chang
 | 0008 | [Chunks and vectors in PostgreSQL + pgvector; page-aware chunking](0008-pgvector-chunk-storage.md) | Accepted |
 | 0009 | [Model providers behind Spring AI: Ollama locally, a cloud provider in production](0009-model-provider-abstraction.md) | Accepted |
 | 0010 | [Backfill pre-pipeline documents with a migration; let members retry documents stuck in the queue](0010-backfill-and-stuck-document-safety-net.md) | Accepted |
-
-Planned (later phases): hybrid search with reciprocal rank fusion.
+| 0011 | [Hybrid retrieval: pgvector + PostgreSQL full-text search, merged with reciprocal rank fusion](0011-hybrid-retrieval-with-reciprocal-rank-fusion.md) | Accepted |
+| 0012 | [Grounded, streamed answers with server-side citations and prompt-injection hygiene](0012-grounded-answers-and-prompt-injection-hygiene.md) | Accepted |
 
 Use [`template.md`](template.md) for new records.

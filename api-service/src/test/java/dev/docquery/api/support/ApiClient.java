@@ -81,6 +81,34 @@ public final class ApiClient {
 			.hasStatus(HttpStatus.CREATED);
 	}
 
+	public UUID createConversation(TestUser user, UUID workspaceId) {
+		MvcTestResult result = post(user, "/api/workspaces/" + workspaceId + "/conversations", "{}");
+		assertThat(result).hasStatus(HttpStatus.CREATED);
+		return UUID.fromString(body(result).get("id").asString());
+	}
+
+	/** Asks a question the way the browser does; the result holds the whole event stream once it ended. */
+	public MvcTestResult ask(TestUser user, UUID workspaceId, UUID conversationId, String question) {
+		String body = this.json.writeValueAsString(java.util.Map.of("question", question));
+		return this.mvc.post()
+			.uri("/api/workspaces/" + workspaceId + "/conversations/" + conversationId + "/messages")
+			.with(user.auth())
+			.contentType(MediaType.APPLICATION_JSON)
+			.accept(MediaType.TEXT_EVENT_STREAM, MediaType.APPLICATION_PROBLEM_JSON)
+			.content(body)
+			.exchange();
+	}
+
+	/** Asks a question that must be accepted and returns the stream's events. */
+	public java.util.List<SseEvents.Event> askAndRead(TestUser user, UUID workspaceId, UUID conversationId,
+			String question) {
+		MvcTestResult result = ask(user, workspaceId, conversationId, question);
+		assertThat(result).hasStatusOk();
+		String stream = new String(result.getResponse().getContentAsByteArray(),
+				java.nio.charset.StandardCharsets.UTF_8);
+		return SseEvents.parse(stream, this.json);
+	}
+
 	public JsonNode body(MvcTestResult result) {
 		return this.json.readTree(result.getResponse().getContentAsByteArray());
 	}

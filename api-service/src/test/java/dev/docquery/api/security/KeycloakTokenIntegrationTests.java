@@ -58,7 +58,8 @@ class KeycloakTokenIntegrationTests {
 		.withEnv("KC_BOOTSTRAP_ADMIN_PASSWORD", "admin")
 		.withCopyFileToContainer(MountableFile.forHostPath(REALM_FILE), "/opt/keycloak/data/import/docquery-realm.json")
 		.withExposedPorts(8080, 9000)
-		.waitingFor(Wait.forHttp("/health/ready").forPort(9000).withStartupTimeout(Duration.ofMinutes(3)));
+		// start-dev builds Keycloak before starting it: about 2.5 minutes on a busy laptop.
+		.waitingFor(Wait.forHttp("/health/ready").forPort(9000).withStartupTimeout(Duration.ofMinutes(5)));
 
 	@DynamicPropertySource
 	static void oidc(DynamicPropertyRegistry registry) {

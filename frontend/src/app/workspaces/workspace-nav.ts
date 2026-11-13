@@ -17,6 +17,13 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
         >Documents</a
       >
       <a
+        [routerLink]="['/workspaces', workspaceId(), 'chat']"
+        routerLinkActive="border-indigo-600 text-indigo-700"
+        ariaCurrentWhenActive="page"
+        class="-mb-px border-b-2 border-transparent px-3 py-2 font-medium text-slate-600 hover:text-slate-900"
+        >Ask</a
+      >
+      <a
         [routerLink]="['/workspaces', workspaceId(), 'members']"
         routerLinkActive="border-indigo-600 text-indigo-700"
         ariaCurrentWhenActive="page"

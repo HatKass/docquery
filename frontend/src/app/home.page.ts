@@ -10,7 +10,7 @@ import { WorkspaceContext } from './workspaces/workspace-context.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (!auth.isAuthenticated()) {
-      <section class="mx-auto max-w-2xl rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+      <section class="mx-auto max-w-2xl rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
         <h2 class="text-2xl font-semibold text-slate-900">Ask your documents anything</h2>
         <p class="mt-3 text-slate-600">
           Upload documents into a shared workspace and get answers that cite the exact page they came from.

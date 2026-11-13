@@ -6,6 +6,7 @@ import java.time.Duration;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -13,6 +14,9 @@ import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
+
+import dev.docquery.api.support.StubChatModel;
+import dev.docquery.api.support.StubEmbeddingModel;
 
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
@@ -51,6 +55,34 @@ public class TestcontainersConfiguration {
 			.withCreateContainerCmdModifier(cmd -> cmd.withEntrypoint("/bin/sh", "/etc/seaweedfs/entrypoint.sh"))
 			.withExposedPorts(S3_PORT)
 			.waitingFor(Wait.forHttp("/healthz").forPort(S3_PORT).withStartupTimeout(Duration.ofMinutes(2)));
+	}
+
+	/**
+	 * Offline, deterministic models: tests need no Ollama and no API key. {@code @Primary} because the
+	 * provider auto-configuration still creates its (never called) beans: its conditions are evaluated
+	 * before {@link DynamicPropertyRegistrar}s could switch it off.
+	 */
+	@Bean
+	@Primary
+	StubChatModel stubChatModel() {
+		return new StubChatModel();
+	}
+
+	@Bean
+	@Primary
+	StubEmbeddingModel stubEmbeddingModel() {
+		return new StubEmbeddingModel();
+	}
+
+	@Bean
+	DynamicPropertyRegistrar aiProperties() {
+		return registry -> {
+			registry.add("docquery.chat.model", () -> StubChatModel.MODEL);
+			registry.add("docquery.retrieval.embedding-model", () -> StubEmbeddingModel.MODEL);
+			registry.add("docquery.retrieval.query-prefix", () -> "");
+			// Bag-of-words stub vectors: one shared word already gives a clear similarity.
+			registry.add("docquery.retrieval.min-similarity", () -> "0.2");
+		};
 	}
 
 	@Bean

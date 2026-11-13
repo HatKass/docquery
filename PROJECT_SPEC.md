@@ -111,11 +111,16 @@ Phase 4 (Ingestion):
 Phase 6 (Usage & admin):
 - Limit how many workspaces a user can create (configurable, e.g. max 3 per user), with a friendly error when exceeded, and an admin override.
 
+Phase 8 (Testing & evaluation):
+- Include the manual-testing failure cases in the RAG evaluation set: entity attribution across documents (handbook vs CV), padded answers, false "not found" when the right passage is retrieved, and evaluative questions ("assess this CV"). Run the evaluation with llama3.2:3b, qwen2.5:7b and the production cloud model, and report a comparison table.
+
 Phase 9 (Kubernetes & deployment):
 - The production Keycloak realm must NOT include the dev-only docquery-dev-cli client. Use a separate production realm export.
 - The public demo needs demo users, so do not simply set DEMO_SEED_ENABLED=false. Design a safe demo setup: demo users with limited rights, the daily question/upload quotas from 4.5, and a documented way to reset demo data.
 - Document the local Postgres port conflict (POSTGRES_PORT in .env) in the deployment guide too.
 - Live updates (SSE) only reach browsers connected to the replica that consumed the status event (ADR 0007). With more than one api-service replica, fan out status events to all replicas (e.g. per-replica Kafka consumer group or Postgres LISTEN/NOTIFY) and test it.
+- Use a cloud chat model for the public demo (llama3.2:3b is not reliable enough at following grounding rules). Document the model choice with the evaluation numbers.
+- CI: the Keycloak Testcontainer can take ~2.5 min to start; keep the 5-min timeout and watch CI duration.
 
 General:
 - Every new workspace-scoped endpoint must be added to TenantIsolationTests (the test already enforces this).
