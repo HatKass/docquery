@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { AuthService } from '../auth/auth.service';
+import { SessionWatch } from '../auth/session-watch.service';
 import { FETCH } from '../documents/document-events.service';
 import { ProblemDetail } from '../shared/problem';
 import { SseParser } from '../shared/sse-parser';
@@ -28,6 +29,7 @@ export class AskRejectedError extends Error {
 export class AnswerStream {
   private readonly auth = inject(AuthService);
   private readonly fetch = inject(FETCH);
+  private readonly session = inject(SessionWatch);
 
   ask(workspaceId: string, conversationId: string, question: string): Observable<AnswerStreamEvent> {
     return new Observable<AnswerStreamEvent>((subscriber) => {
@@ -50,6 +52,9 @@ export class AnswerStream {
           signal: controller.signal,
           cache: 'no-store',
         });
+        if (response.status === 401) {
+          void this.session.onUnauthorized();
+        }
         if (!response.ok || !response.body) {
           throw new AskRejectedError(response.status, await readProblem(response));
         }

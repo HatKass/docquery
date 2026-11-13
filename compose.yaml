@@ -216,6 +216,13 @@ services:
       OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_CHAT_MODEL: ${ANTHROPIC_CHAT_MODEL:-claude-haiku-5-5}
+      # Usage & quotas (Phase 6); 0 = no limit. USAGE_PRICES is not passed through (an empty value
+      # would erase the price table): the defaults in application.yml apply to this container.
+      QUOTA_MAX_WORKSPACES_PER_USER: ${QUOTA_MAX_WORKSPACES_PER_USER:-3}
+      QUOTA_DAILY_QUESTIONS_PER_USER: ${QUOTA_DAILY_QUESTIONS_PER_USER:-50}
+      QUOTA_DAILY_UPLOADS_PER_USER: ${QUOTA_DAILY_UPLOADS_PER_USER:-20}
+      QUOTA_MAX_DOCUMENTS_PER_WORKSPACE: ${QUOTA_MAX_DOCUMENTS_PER_WORKSPACE:-100}
+      ADMIN_ROLE: ${ADMIN_ROLE:-docquery-admin}
     # Docker Desktop resolves host.docker.internal by itself; this makes it work on Linux too.
     extra_hosts:
       - "host.docker.internal:host-gateway"

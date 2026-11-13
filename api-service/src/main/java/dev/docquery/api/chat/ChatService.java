@@ -16,6 +16,8 @@ import dev.docquery.api.chat.ChatDtos.MessageResponse;
 import dev.docquery.api.chat.ConversationRepository.NewMessage;
 import dev.docquery.api.common.error.ApiException;
 import dev.docquery.api.retrieval.ChunkRetriever;
+import dev.docquery.api.usage.QuotaService;
+import dev.docquery.api.usage.UsageLedger;
 import dev.docquery.api.user.CurrentUser;
 import dev.docquery.api.workspace.WorkspaceAccess;
 import dev.docquery.api.workspace.WorkspaceRole;
@@ -43,9 +45,16 @@ public class ChatService {
 
 	private final QueryRewriter rewriter;
 
+	private final QuotaService quotas;
+
+	private final UsageLedger ledger;
+
 	ChatService(ConversationRepository conversations, WorkspaceAccess access, ChunkRetriever retriever,
 			ChatModel chatModel, ChatProperties properties, TransactionTemplate transactions,
-			@Qualifier("applicationTaskExecutor") AsyncTaskExecutor executor, QueryRewriter rewriter) {
+			@Qualifier("applicationTaskExecutor") AsyncTaskExecutor executor, QueryRewriter rewriter,
+			QuotaService quotas, UsageLedger ledger) {
+		this.quotas = quotas;
+		this.ledger = ledger;
 		this.rewriter = rewriter;
 		this.conversations = conversations;
 		this.access = access;
@@ -87,7 +96,8 @@ public class ChatService {
 	/**
 	 * Stores the question, then streams the answer as Server-Sent Events (see {@link AnswerStream}).
 	 * Access, the conversation and the question are checked before the stream opens, so those errors
-	 * are ordinary ProblemDetail responses.
+	 * are ordinary ProblemDetail responses. The question counts against the asker's daily quota in the
+	 * same transaction that stores it (429 once the quota is used up).
 	 */
 	public SseEmitter ask(UUID workspaceId, UUID conversationId, String question, CurrentUser user) {
 		this.access.require(workspaceId, user, WorkspaceRole.VIEWER);
@@ -98,12 +108,14 @@ public class ChatService {
 		}
 		MessageResponse stored = this.transactions.execute(status -> {
 			this.conversations.lock(workspaceId, user.id(), conversationId).orElseThrow(() -> notFound(conversationId));
+			this.quotas.countQuestion(user.id());
 			this.conversations.touch(workspaceId, conversationId, text);
 			return this.conversations.insertMessage(NewMessage.question(workspaceId, conversationId, text), List.of());
 		});
 		SseEmitter emitter = new SseEmitter(this.properties.streamTimeout().toMillis());
-		AnswerStream stream = new AnswerStream(emitter, workspaceId, conversationId, stored, this.conversations,
-				this.retriever, this.rewriter, this.chatModel, this.properties, this.transactions);
+		AnswerStream stream = new AnswerStream(emitter, workspaceId, conversationId, user.id(), stored,
+				this.conversations, this.retriever, this.rewriter, this.chatModel, this.properties, this.transactions,
+				this.ledger);
 		stream.start();
 		this.executor.execute(stream::run);
 		return emitter;

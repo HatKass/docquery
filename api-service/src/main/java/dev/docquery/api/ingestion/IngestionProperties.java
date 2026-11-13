@@ -13,7 +13,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("docquery.ingestion")
 public record IngestionProperties(Topics topics, Outbox outbox) {
 
-	public record Topics(String uploaded, String status, int partitions, int replicas) {
+	/**
+	 * @param deadLetter where the worker puts {@code document.uploaded} events it gave up on; consumed
+	 * into the admin page's dead-letter inbox
+	 */
+	public record Topics(String uploaded, String status, String deadLetter, int partitions, int replicas) {
 	}
 
 	/**

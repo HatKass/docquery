@@ -13,6 +13,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -29,8 +30,11 @@ import tools.jackson.databind.json.JsonMapper;
 class SecurityConfiguration {
 
 	@Bean
-	SecurityFilterChain apiSecurity(HttpSecurity http, JsonMapper jsonMapper) throws Exception {
+	SecurityFilterChain apiSecurity(HttpSecurity http, JsonMapper jsonMapper, DocQuerySecurityProperties properties)
+			throws Exception {
 		ProblemDetailSecurityHandlers problemHandlers = new ProblemDetailSecurityHandlers(jsonMapper);
+		JwtAuthenticationConverter tokenConverter = new JwtAuthenticationConverter();
+		tokenConverter.setJwtGrantedAuthoritiesConverter(new AdminAuthorities(properties.adminRole()));
 		http.authorizeHttpRequests(auth -> auth
 			// An async dispatch (SSE, streamed downloads) continues a request that was already
 			// authenticated and authorized on its initial REQUEST dispatch.
@@ -38,13 +42,16 @@ class SecurityConfiguration {
 			.permitAll()
 			.requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info", "/error")
 			.permitAll()
+			// Platform administration; everything else is authorized per workspace (WorkspaceAccess).
+			.requestMatchers("/api/admin/**")
+			.hasRole("ADMIN")
 			.anyRequest()
 			.authenticated())
 			// Bearer tokens are never attached automatically by browsers, so CSRF does not apply.
 			.csrf(AbstractHttpConfigurer::disable)
 			.cors(Customizer.withDefaults())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults())
+			.oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(tokenConverter))
 				.authenticationEntryPoint(problemHandlers)
 				.accessDeniedHandler(problemHandlers))
 			.exceptionHandling(ex -> ex.authenticationEntryPoint(problemHandlers).accessDeniedHandler(problemHandlers));

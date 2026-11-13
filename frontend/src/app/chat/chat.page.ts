@@ -17,9 +17,11 @@ import { Subscription, firstValueFrom } from 'rxjs';
 import { DocumentApi } from '../documents/document-api.service';
 import { DocumentOpener } from '../documents/document-opener.service';
 import { ConfirmDialog } from '../shared/confirm-dialog';
+import { UsageApi } from '../usage/usage-api.service';
+import { QuotaStatus } from '../usage/usage.model';
+import { LoadError } from '../shared/load-error';
 import { problemMessage } from '../shared/problem';
 import { WorkspaceContext } from '../workspaces/workspace-context.service';
-import { WorkspaceNav } from '../workspaces/workspace-nav';
 import { AnswerContent } from './answer-content';
 import { citationLabel } from './answer-segments';
 import { AnswerStream, AskRejectedError } from './answer-stream.service';
@@ -39,7 +41,7 @@ interface PendingAnswer {
  */
 @Component({
   selector: 'app-chat-page',
-  imports: [DatePipe, WorkspaceNav, AnswerContent],
+  imports: [DatePipe, AnswerContent, LoadError],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (notFound()) {
@@ -51,7 +53,6 @@ interface PendingAnswer {
       <section class="mx-auto max-w-6xl space-y-6">
         <div>
           <h2 class="truncate text-xl font-semibold text-slate-900" data-testid="workspace-name">{{ ws.name }}</h2>
-          <div class="mt-4"><app-workspace-nav [workspaceId]="ws.id" /></div>
         </div>
 
         <!-- Desktop: conversations | messages | citation viewer. Phones and tablets: one column, the
@@ -112,7 +113,11 @@ interface PendingAnswer {
                   </button>
                 </li>
               } @empty {
-                <li class="px-2 text-xs text-slate-500">No conversations yet.</li>
+                @if (listError(); as e) {
+                  <li><app-load-error what="your conversations" [message]="e" (retry)="retryList()" /></li>
+                } @else {
+                  <li class="px-2 text-xs text-slate-500">No conversations yet.</li>
+                }
               }
             </ul>
           </aside>
@@ -120,7 +125,9 @@ interface PendingAnswer {
           <!-- Messages and composer -->
           <div class="flex min-h-[22rem] min-w-0 flex-col rounded-xl border border-slate-200 bg-white shadow-sm sm:min-h-[28rem]">
             <div #scroller class="max-h-[60dvh] flex-1 space-y-4 overflow-y-auto p-3 sm:p-4" data-testid="messages" aria-live="polite">
-              @if (!messages().length && !pending()) {
+              @if (messagesError(); as e) {
+                <app-load-error what="this conversation" [message]="e" (retry)="retryMessages()" />
+              } @else if (!messages().length && !pending()) {
                 <div class="py-10 text-center text-sm text-slate-600" data-testid="chat-empty">
                   <p class="font-medium text-slate-800">Ask a question about this workspace's documents.</p>
                   <p class="mt-1">Answers cite the document and page they come from.</p>
@@ -218,6 +225,15 @@ interface PendingAnswer {
                 </button>
               }
             </form>
+            @if (questionQuota(); as q) {
+              <p class="px-3 pb-2 text-xs" [class]="q.remaining === 0 ? 'text-red-700' : 'text-slate-500'" data-testid="question-quota">
+                @if (q.remaining === 0) {
+                  You have used all {{ q.limit }} questions for today. The limit resets at midnight UTC.
+                } @else {
+                  {{ q.remaining }} of {{ q.limit }} questions left today.
+                }
+              </p>
+            }
           </div>
 
           <!-- Citation viewer: a column on desktop, a bottom sheet over a backdrop on smaller screens. -->
@@ -271,6 +287,7 @@ export class ChatPage {
   readonly conversation = input<string | undefined>();
 
   private readonly chat = inject(ChatApi);
+  private readonly usage = inject(UsageApi);
   private readonly answers = inject(AnswerStream);
   private readonly documents = inject(DocumentApi);
   private readonly opener = inject(DocumentOpener);
@@ -286,6 +303,11 @@ export class ChatPage {
   protected readonly selected = signal<Citation | null>(null);
   protected readonly draft = signal('');
   protected readonly error = signal<string | null>(null);
+  /** Loading the conversation list or the open conversation failed: shown instead of empty states. */
+  protected readonly listError = signal<string | null>(null);
+  protected readonly messagesError = signal<string | null>(null);
+  /** The daily question quota; null while unknown or when there is no limit. */
+  protected readonly questionQuota = signal<QuotaStatus | null>(null);
   protected readonly notFound = signal(false);
   protected readonly readyCount = signal<number | null>(null);
   /** Phones and tablets only: whether the conversation list is expanded. */
@@ -317,9 +339,13 @@ export class ChatPage {
 
   private async show(id: string): Promise<void> {
     this.stop();
+    void this.refreshQuota();
     this.notFound.set(false);
     this.error.set(null);
     this.messages.set([]);
+    this.conversations.set([]);
+    this.listError.set(null);
+    this.messagesError.set(null);
     this.activeId.set(null);
     this.selected.set(null);
     try {
@@ -335,7 +361,13 @@ export class ChatPage {
         (docs) => this.readyCount.set(docs.filter((d) => d.status === 'READY').length),
         () => this.readyCount.set(null), // only a hint
       );
-      const list = await firstValueFrom(this.chat.list(id));
+      let list: ConversationSummary[];
+      try {
+        list = await firstValueFrom(this.chat.list(id));
+      } catch (e) {
+        this.listError.set(problemMessage(e));
+        return;
+      }
       this.conversations.set(list);
       const requested = this.conversation();
       const initial = list.find((c) => c.id === requested) ?? list[0];
@@ -351,6 +383,7 @@ export class ChatPage {
     this.activeId.set(conversationId);
     this.selected.set(null);
     this.error.set(null);
+    this.messagesError.set(null);
     try {
       const detail = await firstValueFrom(this.chat.get(this.workspaceId(), conversationId));
       if (this.activeId() === conversationId) {
@@ -358,7 +391,10 @@ export class ChatPage {
         this.scrollToEnd();
       }
     } catch (e) {
-      this.error.set(problemMessage(e));
+      if (this.activeId() === conversationId) {
+        this.messages.set([]);
+        this.messagesError.set(problemMessage(e));
+      }
     }
   }
 
@@ -430,6 +466,7 @@ export class ChatPage {
       },
       error: (e: unknown) => {
         this.pending.set(null);
+        void this.refreshQuota();
         if (e instanceof AskRejectedError) {
           this.draft.set(question); // nothing was stored: let the user fix and resend
           this.error.set(e.message);
@@ -437,7 +474,10 @@ export class ChatPage {
           this.error.set('The connection was lost while answering. Reload the conversation to see what was saved.');
         }
       },
-      complete: () => void this.refreshList(),
+      complete: () => {
+        void this.refreshList();
+        void this.refreshQuota();
+      },
     });
   }
 
@@ -499,6 +539,27 @@ export class ChatPage {
       );
     } catch (e) {
       this.error.set(problemMessage(e));
+    }
+  }
+
+  /** Best effort: the hint simply stays hidden if the quota cannot be loaded. */
+  private async refreshQuota(): Promise<void> {
+    try {
+      const quotas = await firstValueFrom(this.usage.myQuotas());
+      this.questionQuota.set(quotas.questionsToday.limit === null ? null : quotas.questionsToday);
+    } catch {
+      this.questionQuota.set(null);
+    }
+  }
+
+  protected retryList(): void {
+    void this.show(this.workspaceId());
+  }
+
+  protected retryMessages(): void {
+    const id = this.activeId();
+    if (id) {
+      void this.load(id);
     }
   }
 

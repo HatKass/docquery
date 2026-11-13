@@ -22,6 +22,10 @@ export function problemMessage(error: unknown): string {
     if (error.status === 0) {
       return 'The API is not reachable. Is api-service running?';
     }
+    if (error.status === 502 || error.status === 503 || error.status === 504) {
+      // A proxy answered because the API did not: no problem body to show.
+      return 'The server is not reachable right now. Please try again in a moment.';
+    }
     return `Request failed (${error.status}).`;
   }
   return 'Something went wrong.';

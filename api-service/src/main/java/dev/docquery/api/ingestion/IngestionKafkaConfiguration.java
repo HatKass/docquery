@@ -16,7 +16,7 @@ class IngestionKafkaConfiguration {
 
 	/*
 	 * Both services declare the topics they use (same settings), so either can start first; the
-	 * broker never auto-creates topics. The worker also declares the dead-letter topic it writes.
+	 * broker never auto-creates topics.
 	 */
 
 	@Bean
@@ -27,6 +27,12 @@ class IngestionKafkaConfiguration {
 	@Bean
 	NewTopic documentStatusTopic(IngestionProperties properties) {
 		return topic(properties.topics().status(), properties);
+	}
+
+	/** Written by the worker, read here for the admin page. */
+	@Bean
+	NewTopic documentUploadedDeadLetterTopic(IngestionProperties properties) {
+		return topic(properties.topics().deadLetter(), properties);
 	}
 
 	private static NewTopic topic(String name, IngestionProperties properties) {

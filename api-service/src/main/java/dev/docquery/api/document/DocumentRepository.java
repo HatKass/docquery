@@ -105,6 +105,14 @@ class DocumentRepository {
 			.optional();
 	}
 
+	/** Across workspaces: platform-admin operations only, never reachable with a member's request. */
+	Optional<IngestionSource> findIngestionSourceById(UUID documentId) {
+		return this.jdbc.sql(SELECT_INGESTION_SOURCE + "WHERE d.id = :id")
+			.param("id", documentId)
+			.query(DocumentRepository::mapIngestionSource)
+			.optional();
+	}
+
 	/**
 	 * Finished documents (READY or FAILED) across all workspaces that need re-indexing for
 	 * {@code currentModel}: any chunk embedded with another model, or, with {@code all}, every one.

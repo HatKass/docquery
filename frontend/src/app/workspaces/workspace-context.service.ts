@@ -24,6 +24,8 @@ export class WorkspaceContext {
     return all.find((w) => w.id === this._currentId()) ?? all[0] ?? null;
   });
   readonly loaded = computed(() => this._me() !== null);
+  /** UI hint only: every admin endpoint is protected by the API itself. */
+  readonly isAdmin = computed(() => this._me()?.admin === true);
 
   private inFlight: Promise<void> | null = null;
 

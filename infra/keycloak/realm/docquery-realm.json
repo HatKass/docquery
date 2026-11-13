@@ -10,6 +10,14 @@
   "bruteForceProtected": true,
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
+  "roles": {
+    "realm": [
+      {
+        "name": "docquery-admin",
+        "description": "DocQuery platform admin: admin page (usage and cost of all workspaces, pipeline failures, dead-letter retry, per-user workspace limits). Workspace roles are managed in the app, not here."
+      }
+    ]
+  },
   "clients": [
     {
       "clientId": "docquery-frontend",
@@ -147,6 +155,25 @@
       "firstName": "Oscar",
       "lastName": "Outsider",
       "email": "outsider@docquery.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "demo123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "6f1c1a3e-0c55-4c1b-9d7e-1a2b3c4d0005",
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Ada",
+      "lastName": "Admin",
+      "email": "admin@docquery.local",
+      "realmRoles": [
+        "docquery-admin"
+      ],
       "credentials": [
         {
           "type": "password",

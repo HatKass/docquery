@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import dev.docquery.api.common.error.ApiException;
+import dev.docquery.api.usage.QuotaService;
 import dev.docquery.api.user.CurrentUser;
 import dev.docquery.api.user.UserService;
 import dev.docquery.api.workspace.WorkspaceDtos.MemberResponse;
@@ -30,8 +31,11 @@ public class WorkspaceService {
 
 	private final ApplicationEventPublisher events;
 
+	private final QuotaService quotas;
+
 	WorkspaceService(WorkspaceRepository workspaces, WorkspaceMemberRepository members, WorkspaceAccess access,
-			UserService users, ApplicationEventPublisher events) {
+			UserService users, ApplicationEventPublisher events, QuotaService quotas) {
+		this.quotas = quotas;
 		this.workspaces = workspaces;
 		this.members = members;
 		this.access = access;
@@ -50,9 +54,13 @@ public class WorkspaceService {
 			.orElseThrow(() -> WorkspaceAccess.notFound(workspaceId));
 	}
 
-	/** Creates a workspace; the creator becomes its first OWNER. */
+	/**
+	 * Creates a workspace; the creator becomes its first OWNER. Each user may create a limited number
+	 * of workspaces (docquery.usage.quotas.max-workspaces-per-user, overridable per user by an admin).
+	 */
 	@Transactional
 	public WorkspaceResponse create(String name, CurrentUser user) {
+		this.quotas.requireWorkspaceSlot(user.id());
 		UUID id = this.workspaces.insert(name.strip(), user.id());
 		this.members.insert(id, user.id(), WorkspaceRole.OWNER);
 		return get(id, user);

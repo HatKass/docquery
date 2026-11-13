@@ -11,7 +11,13 @@ export class FakeUserManager {
   private readonly listeners: Record<string, Listener[]> = {};
 
   readonly signinRedirect = vi.fn(async (_args?: unknown) => undefined);
-  readonly signoutRedirect = vi.fn(async () => undefined);
+  /** Like the real one: the local session is removed before leaving for Keycloak. */
+  readonly signoutRedirect = vi.fn(async () => {
+    this.storedUser = null;
+  });
+  readonly removeUser = vi.fn(async () => {
+    this.storedUser = null;
+  });
   readonly signinRedirectCallback = vi.fn(async () => this.storedUser as User);
   readonly getUser = vi.fn(async () => this.storedUser);
 
@@ -31,7 +37,9 @@ export class FakeUserManager {
   }
 }
 
-export function fakeUser(overrides: Partial<{ expired: boolean; name: string; state: unknown }> = {}): User {
+export function fakeUser(
+  overrides: Partial<{ expired: boolean; name: string; state: unknown }> = {},
+): User {
   return {
     access_token: 'access-token-123',
     expired: overrides.expired ?? false,

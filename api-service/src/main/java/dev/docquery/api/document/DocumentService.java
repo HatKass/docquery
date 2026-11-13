@@ -31,6 +31,7 @@ import dev.docquery.api.document.DocumentDtos.UploadPolicyResponse;
 import dev.docquery.api.document.DocumentRepository.IngestionSource;
 import dev.docquery.api.document.DocumentRepository.NewDocument;
 import dev.docquery.api.storage.ObjectStorage;
+import dev.docquery.api.usage.QuotaService;
 import dev.docquery.api.user.CurrentUser;
 import dev.docquery.api.workspace.WorkspaceAccess;
 import dev.docquery.api.workspace.WorkspaceEvents;
@@ -65,9 +66,12 @@ public class DocumentService {
 
 	private final DocumentStatusService statusService;
 
+	private final QuotaService quotas;
+
 	DocumentService(DocumentRepository documents, WorkspaceAccess access, ObjectStorage storage,
 			DocumentTypeDetector detector, DocumentProperties properties, ApplicationEventPublisher events,
-			TransactionTemplate transactions, DocumentStatusService statusService) {
+			TransactionTemplate transactions, DocumentStatusService statusService, QuotaService quotas) {
+		this.quotas = quotas;
 		this.documents = documents;
 		this.access = access;
 		this.storage = storage;
@@ -111,6 +115,8 @@ public class DocumentService {
 		if (file.getSize() > this.properties.maxFileSize().toBytes()) {
 			throw fileTooLarge(this.properties.maxFileSize().toMegabytes());
 		}
+		// Early, cheap check; the binding count happens in the insert transaction below.
+		this.quotas.checkUploadAllowed(user.id());
 		Path temp = null;
 		try {
 			temp = Files.createTempFile("docquery-upload-", ".tmp");
@@ -127,6 +133,9 @@ public class DocumentService {
 			this.storage.put(key, temp, type.mediaType());
 			try {
 				return this.transactions.execute(status -> {
+					// Limits are checked and counted with the insert: a failed upload uses up nothing.
+					this.quotas.requireDocumentSlot(workspaceId);
+					this.quotas.countUpload(user.id());
 					this.documents.insert(new NewDocument(id, workspaceId, filename, type.mediaType(), size,
 							sha256, key, user.id()));
 					DocumentResponse created = this.documents.find(workspaceId, id).orElseThrow();
@@ -176,12 +185,29 @@ public class DocumentService {
 		return this.transactions.execute(status -> {
 			IngestionSource source = this.documents.findIngestionSource(workspaceId, documentId)
 				.orElseThrow(() -> notFound(documentId));
-			if (!requestReindex(source) && !requeueIfStuck(source)) {
-				throw ApiException.conflict("document-busy", "The document is still being processed. You can retry "
-						+ "it once it is ready, has failed, or has been queued for more than " + requeueAfterText() + ".");
-			}
-			return this.documents.find(workspaceId, documentId).orElseThrow();
+			return reindex(source);
 		});
+	}
+
+	/**
+	 * Platform admin: retry a document of any workspace (failure list, dead-letter retry). Same rules as
+	 * {@link #reindex(UUID, UUID, CurrentUser)}. Callers must have checked the admin role.
+	 */
+	public DocumentResponse reindexAsAdmin(UUID documentId) {
+		return this.transactions.execute(status -> {
+			IngestionSource source = this.documents.findIngestionSourceById(documentId)
+				.orElseThrow(() -> notFound(documentId));
+			return reindex(source);
+		});
+	}
+
+	/** Within a transaction. */
+	private DocumentResponse reindex(IngestionSource source) {
+		if (!requestReindex(source) && !requeueIfStuck(source)) {
+			throw ApiException.conflict("document-busy", "The document is still being processed. You can retry "
+					+ "it once it is ready, has failed, or has been queued for more than " + requeueAfterText() + ".");
+		}
+		return this.documents.find(source.workspaceId(), source.id()).orElseThrow();
 	}
 
 	/** Within a transaction: re-queue a document stuck in UPLOADED; false if it is not stuck. */

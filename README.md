@@ -4,7 +4,7 @@
 
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)](.github/workflows/ci.yml)
 
-**Status: Phase 5 (RAG chat) complete.** Keycloak login (OIDC + PKCE), multi-workspace roles with tenant-isolation tests, a document library with content-validated uploads and live status (SSE), an event-driven ingestion pipeline (Kafka outbox, idempotent worker, retries, dead-letter topic → Tika → chunks → embeddings → pgvector), and **grounded chat**: hybrid retrieval (pgvector + full-text search, reciprocal rank fusion), answers streamed word by word with citations to document and page, a citation viewer, and prompt-injection hygiene with tests. Features land phase by phase (see [Roadmap](#roadmap)).
+**Status: Phase 6 (Usage & admin) complete.** Keycloak login (OIDC + PKCE), multi-workspace roles with tenant-isolation tests, a document library with content-validated uploads and live status (SSE), an event-driven ingestion pipeline (Kafka outbox, idempotent worker, retries, dead-letter topic → Tika → chunks → embeddings → pgvector), and **grounded chat**: hybrid retrieval (pgvector + full-text search, reciprocal rank fusion), answers streamed word by word with citations to document and page, a citation viewer, and prompt-injection hygiene with tests. **Usage & cost safety**: token and estimated-cost tracking per workspace and user, daily question/upload quotas, a per-user workspace-creation limit, and an admin page with usage charts, pipeline failures and dead-letter retry. Features land phase by phase (see [Roadmap](#roadmap)).
 
 ## Architecture
 
@@ -74,7 +74,7 @@ Docker Compose and both Spring services (when run from source) read that file.
 | Service | URL | Credentials (local only) |
 |---------|-----|--------------------------|
 | Keycloak admin | http://localhost:8180 | `admin` / `admin_local` |
-| Demo users (realm `docquery`) | http://localhost:4200 | `owner`, `member`, `viewer`, `outsider` / `demo123` |
+| Demo users (realm `docquery`) | http://localhost:4200 | `owner`, `member`, `viewer`, `outsider`, `admin` / `demo123` |
 | Postgres | `localhost:5432` (or `POSTGRES_PORT`) | `docquery` / `docquery_local` |
 | Kafka | `localhost:9092` | — |
 | S3 API (SeaweedFS) | http://localhost:8333 | `docquery` / `docquery_local_secret` |
@@ -91,6 +91,7 @@ Sign in at http://localhost:4200 with a demo account. All demo users except `out
 | `member` | MEMBER | read; upload and delete documents; ask questions |
 | `viewer` | VIEWER | read and open documents; ask questions |
 | `outsider` | none | shows tenant isolation: sees only their own workspaces |
+| `admin` | none | platform admin (realm role `docquery-admin`): the **Admin** page; not a member of any workspace |
 
 Anyone can create a workspace and becomes its owner. Members are added by username or e-mail once they
 have signed in at least once.
@@ -255,6 +256,39 @@ curl -N -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 > passage. `OLLAMA_CHAT_MODEL=qwen2.5:7b` (or a cloud provider) follows the rules better. The first
 > question after a while is slower: Ollama loads the model (and unloads it after 5 idle minutes).
 
+## Usage, quotas & admin
+
+Every answer's tokens go to a **usage ledger** (`chat_usage`, written with the answer); the worker
+records embedding tokens. Costs are **estimates** from token counts × `USAGE_PRICES` (USD per million
+input/output tokens; models without a price are flagged "unpriced"). The ledger survives deleting
+conversations and workspaces. See [ADR 0013](docs/adr/0013-usage-ledger-quotas-and-platform-admin.md).
+
+| Limit (0 = no limit) | Default | Variable | When exceeded |
+|----------------------|---------|----------|---------------|
+| Workspaces a user may create (that still exist) | 3 | `QUOTA_MAX_WORKSPACES_PER_USER` | 409 `workspace-limit-reached`; admins can override per user |
+| Questions per user per UTC day | 50 | `QUOTA_DAILY_QUESTIONS_PER_USER` | 429 `daily-question-quota-exceeded` + `Retry-After` |
+| Uploads per user per UTC day | 20 | `QUOTA_DAILY_UPLOADS_PER_USER` | 429 `daily-upload-quota-exceeded` + `Retry-After` |
+| Documents per workspace | 100 | `QUOTA_MAX_DOCUMENTS_PER_WORKSPACE` | 409 `workspace-document-limit-reached` |
+
+Deleting conversations or documents does not give quota back; a rejected question or upload uses none.
+The chat shows "N of 50 questions left today".
+
+**Where to see usage:** workspace owners get a **Usage & cost** card under *Members & settings*
+(per day, model and member). Platform admins (`admin` / `demo123`) get the **Admin** page: document
+counts by status, usage and cost of all workspaces (deleted ones included), failed documents with
+*Retry*, dead-lettered ingestion events (`document.uploaded.dlt`) with *Retry* / *Dismiss*, and
+users with a per-user workspace limit override.
+
+| Method | Path | Who |
+|--------|------|-----|
+| GET | `/api/me/quotas` | anyone: own limits and what is left today |
+| GET | `/api/workspaces/{id}/usage?days=30` | OWNER |
+| GET | `/api/admin/overview`, `/api/admin/usage?days=30`, `/api/admin/failures` | admin |
+| POST | `/api/admin/documents/{documentId}/reindex` | admin |
+| GET | `/api/admin/dead-letters?status=PENDING\|RETRIED\|DISMISSED\|ALL` | admin |
+| POST | `/api/admin/dead-letters/{id}/retry`, `/api/admin/dead-letters/{id}/dismiss` | admin |
+| GET / PUT | `/api/admin/users?q=`, `/api/admin/users/{userId}/workspace-limit` `{"limit": 10 \| 0 \| null}` | admin |
+
 ## Tests
 
 ```bash
@@ -277,6 +311,7 @@ cd frontend && npm run test:ci         # Vitest
 - [ADR 0010](docs/adr/0010-backfill-and-stuck-document-safety-net.md): **Backfill as a one-off Flyway migration**; members can re-queue documents stuck in the queue.
 - [ADR 0011](docs/adr/0011-hybrid-retrieval-with-reciprocal-rank-fusion.md): **Hybrid retrieval**: pgvector + Postgres full-text search, merged by reciprocal rank fusion, with a relevance floor that skips the model when nothing matches.
 - [ADR 0012](docs/adr/0012-grounded-answers-and-prompt-injection-hygiene.md): **Grounded answers over SSE**; documents are untrusted data in delimited blocks; citations validated and built server-side.
+- [ADR 0013](docs/adr/0013-usage-ledger-quotas-and-platform-admin.md): **Usage ledger + estimated costs**, quotas as atomic daily counters, a workspace-creation limit with admin override, and a **platform-admin Keycloak realm role**; dead letters consumed into an admin inbox.
 
 ## Roadmap
 
@@ -285,7 +320,7 @@ cd frontend && npm run test:ci         # Vitest
 3. ✅ Documents
 4. ✅ Ingestion pipeline
 5. ✅ RAG chat
-6. Usage & admin
+6. ✅ Usage & admin
 7. Observability
 8. Testing & evaluation
 9. Kubernetes & deployment

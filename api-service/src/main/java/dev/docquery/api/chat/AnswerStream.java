@@ -30,6 +30,7 @@ import dev.docquery.api.chat.ChatDtos.StreamStart;
 import dev.docquery.api.chat.ConversationRepository.NewMessage;
 import dev.docquery.api.retrieval.ChunkRetriever;
 import dev.docquery.api.retrieval.RetrievedChunk;
+import dev.docquery.api.usage.UsageLedger;
 
 /**
  * One answer, streamed as Server-Sent Events: {@code start}, then {@code delta}s as the model
@@ -58,6 +59,11 @@ final class AnswerStream {
 	private final UUID workspaceId;
 
 	private final UUID conversationId;
+
+	/** The asker, charged with the answer's token usage. */
+	private final UUID userId;
+
+	private final UsageLedger ledger;
 
 	private final MessageResponse question;
 
@@ -100,9 +106,11 @@ final class AnswerStream {
 	/** Characters sent to the model, for a token estimate when the provider reports no usage. */
 	private int promptCharacters;
 
-	AnswerStream(SseEmitter emitter, UUID workspaceId, UUID conversationId, MessageResponse question,
+	AnswerStream(SseEmitter emitter, UUID workspaceId, UUID conversationId, UUID userId, MessageResponse question,
 			ConversationRepository conversations, ChunkRetriever retriever, QueryRewriter rewriter, ChatModel chatModel,
-			ChatProperties properties, TransactionTemplate transactions) {
+			ChatProperties properties, TransactionTemplate transactions, UsageLedger ledger) {
+		this.userId = userId;
+		this.ledger = ledger;
 		this.rewriter = rewriter;
 		this.emitter = emitter;
 		this.workspaceId = workspaceId;
@@ -252,6 +260,13 @@ final class AnswerStream {
 		return this.transactions.execute(status -> {
 			MessageResponse stored = this.conversations.insertMessage(message, citations);
 			this.conversations.touch(this.workspaceId, this.conversationId, this.question.content());
+			if (message.model() != null && message.promptTokens() != null) {
+				// Same transaction: the answer and its cost are recorded together. Failed answers that called
+				// the model are charged too (the tokens were spent).
+				this.ledger.recordChat(message.id(), this.workspaceId, this.userId, message.model(),
+						message.promptTokens(), (message.completionTokens() != null) ? message.completionTokens() : 0,
+						Boolean.TRUE.equals(message.tokensEstimated()));
+			}
 			return stored;
 		});
 	}
