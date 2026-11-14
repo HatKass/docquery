@@ -24,6 +24,13 @@
 		<!-- Logback → OpenTelemetry logs bridge (not managed by Boot). 2.28.x is the instrumentation
 		     line built on OpenTelemetry SDK 1.62, the version Spring Boot 4.1.2 manages. -->
 		<opentelemetry-logback-appender.version>2.28.1-alpha</opentelemetry-logback-appender.version>
+		<!-- Code coverage (JaCoCo): report at target/site/jacoco, minimum enforced by "verify". -->
+		<jacoco.version>0.8.16</jacoco.version>
+		<test.env.file>target/no-env-file-in-tests</test.env.file>
+		<test.groups></test.groups>
+		<test.excluded.groups>live-evaluation</test.excluded.groups>
+		<coverage.line.minimum>0.92</coverage.line.minimum>
+		<coverage.branch.minimum>0.72</coverage.branch.minimum>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -201,11 +208,77 @@
 				<configuration>
 					<systemPropertyVariables>
 						<!-- Tests must not depend on a developer's local ../.env -->
-						<DOCQUERY_ENV_FILE>target/no-env-file-in-tests</DOCQUERY_ENV_FILE>
+						<DOCQUERY_ENV_FILE>${test.env.file}</DOCQUERY_ENV_FILE>
 					</systemPropertyVariables>
+					<!-- The live RAG evaluation calls real models: only with -Prag-evaluation. -->
+					<excludedGroups>${test.excluded.groups}</excludedGroups>
+					<groups>${test.groups}</groups>
 				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>${jacoco.version}</version>
+				<executions>
+					<execution>
+						<id>prepare-agent</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>check</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<rule>
+									<element>BUNDLE</element>
+									<limits>
+										<limit>
+											<counter>LINE</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>${coverage.line.minimum}</minimum>
+										</limit>
+										<limit>
+											<counter>BRANCH</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>${coverage.branch.minimum}</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!--
+		  RAG evaluation with real models (LiveRagEvaluationTests), configured like the application:
+		  application.yml, the repo's .env and environment variables. See evaluation/README.md.
+		    OLLAMA_CHAT_MODEL=qwen2.5:7b ./mvnw test -Prag-evaluation
+		-->
+		<profile>
+			<id>rag-evaluation</id>
+			<properties>
+				<test.env.file>../.env</test.env.file>
+				<test.groups>live-evaluation</test.groups>
+				<test.excluded.groups>none</test.excluded.groups>
+				<jacoco.skip>true</jacoco.skip>
+			</properties>
+		</profile>
+	</profiles>
 
 </project>

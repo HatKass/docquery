@@ -19,5 +19,6 @@ context → decision → consequences. ADRs are immutable once accepted; a chang
 | 0012 | [Grounded, streamed answers with server-side citations and prompt-injection hygiene](0012-grounded-answers-and-prompt-injection-hygiene.md) | Accepted |
 | 0013 | [Usage ledger, quotas and a platform-admin role](0013-usage-ledger-quotas-and-platform-admin.md) | Accepted |
 | 0014 | [Observability: OpenTelemetry traces across the outbox and Kafka, Prometheus metrics, logs in Loki, Grafana](0014-observability-otlp-prometheus-grafana.md) | Accepted |
+| 0015 | [Testing and RAG evaluation: deterministic CI evaluation, live model comparison, real-stack e2e](0015-testing-and-rag-evaluation.md) | Accepted |
 
 Use [`template.md`](template.md) for new records.

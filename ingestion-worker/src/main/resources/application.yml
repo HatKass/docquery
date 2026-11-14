@@ -63,6 +63,12 @@ spring:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
       embedding:
         model: ${OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
+        # How long Ollama keeps the model loaded after a request (Ollama's default: 5m). A cold start
+        # (runner + CUDA init + model load) took ~14 s of a 23 s ingestion on a GTX 1650, the embedding
+        # itself ~0.5 s. The model is small (~340 MB VRAM) and Ollama still evicts it if a chat model
+        # needs the memory. Use -1 to keep it loaded indefinitely, 0 to unload after every request.
+        # Only sent when requests carry no options of their own (ChunkEmbedder, ChunkRetriever).
+        keep-alive: ${OLLAMA_EMBEDDING_KEEP_ALIVE:30m}
       init:
         # Models are pulled by you (ollama pull ...), never silently at startup.
         pull-model-strategy: never

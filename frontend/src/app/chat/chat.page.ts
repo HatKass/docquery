@@ -103,7 +103,7 @@ interface PendingAnswer {
                   </button>
                   <button
                     type="button"
-                    class="rounded px-2 py-1.5 text-xs text-slate-400 hover:text-red-700 lg:px-1 lg:py-0"
+                    class="rounded px-2 py-1.5 text-xs text-slate-500 hover:text-red-700 lg:px-1 lg:py-0"
                     [attr.aria-label]="'Delete conversation ' + c.title"
                     data-testid="delete-conversation"
                     [disabled]="streaming()"
@@ -167,7 +167,7 @@ interface PendingAnswer {
                         }
                       </ul>
                     }
-                    <p class="mt-0.5 px-1 text-[11px] text-slate-400">{{ m.createdAt | date: 'HH:mm' }}</p>
+                    <p class="mt-0.5 px-1 text-[11px] text-slate-500">{{ m.createdAt | date: 'HH:mm' }}</p>
                   </div>
                 }
               }

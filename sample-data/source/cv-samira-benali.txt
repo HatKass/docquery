@@ -1,0 +1,41 @@
+Samira Benali
+Junior Software Engineer - Manchester, United Kingdom
+samira.benali@example.com
+
+Fictional person: this CV is sample data written for DocQuery.
+
+Profile
+Junior backend developer with a master's degree in computer science and six months of industry
+experience building REST services in Java and Spring Boot. Interested in reliable, well-tested
+backend systems and in developer tooling.
+
+Experience
+Software Engineering Intern - Northgate Logistics, Manchester (June 2024 - December 2024)
+- Built Spring Boot REST services for shipment tracking used by 40 internal users.
+- Reduced the average response time of the tracking API by 30 % by adding database indexes and
+  caching.
+- Wrote integration tests with JUnit 5 and Testcontainers; raised test coverage from 45 % to 78 %.
+- Took part in code reviews and on-call handovers with the platform team.
+
+Teaching Assistant - University of Leeds, School of Computing (October 2023 - May 2024)
+- Ran weekly lab sessions on object-oriented programming in Java for first-year students.
+<<<PAGE>>>
+Education
+MSc Computer Science, University of Leeds, 2025 - graduated with merit.
+Dissertation: route optimisation for urban parcel delivery.
+BSc Mathematics, University of Lyon, 2022.
+
+Skills
+- Languages: Java 21, Python, SQL, TypeScript.
+- Frameworks and tools: Spring Boot, Angular, PostgreSQL, Docker, Git, GitHub Actions.
+- Practices: test-driven development, REST API design, code review.
+
+Certifications
+Oracle Certified Professional: Java SE 17 Developer (2025).
+
+Projects
+ParcelPath - an open-source route planner for delivery bikes written in Python, using OpenStreetMap
+data. About 200 stars on GitHub.
+
+Languages
+French (native), English (fluent), Arabic (conversational).

@@ -2,6 +2,7 @@ package dev.docquery.api.support;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -52,6 +53,8 @@ public class StubChatModel implements ChatModel {
 
 	private final AtomicReference<RuntimeException> rewriteFailure = new AtomicReference<>();
 
+	private final AtomicBoolean reportsUsage = new AtomicBoolean(true);
+
 	public void reply(Function<Prompt, List<String>> reply) {
 		this.reply.set(reply);
 	}
@@ -63,6 +66,11 @@ public class StubChatModel implements ChatModel {
 	/** Every following answer fails with this exception, as if the provider were down. */
 	public void fail(RuntimeException failure) {
 		this.failure.set(failure);
+	}
+
+	/** From now on behaves like a provider that reports no token usage: DocQuery must estimate it. */
+	public void reportNoUsage() {
+		this.reportsUsage.set(false);
 	}
 
 	public void rewriteTo(String query) {
@@ -80,6 +88,7 @@ public class StubChatModel implements ChatModel {
 		this.rewrite.set(ECHO_QUESTION);
 		this.failure.set(null);
 		this.rewriteFailure.set(null);
+		this.reportsUsage.set(true);
 	}
 
 	/** Answer prompts, in order. */
@@ -109,7 +118,7 @@ public class StubChatModel implements ChatModel {
 		if (error != null) {
 			throw error;
 		}
-		return response(this.rewrite.get().apply(prompt), true);
+		return response(this.rewrite.get().apply(prompt), this.reportsUsage.get());
 	}
 
 	@Override
@@ -120,7 +129,8 @@ public class StubChatModel implements ChatModel {
 			return Flux.error(error);
 		}
 		List<String> pieces = this.reply.get().apply(prompt);
-		return Flux.range(0, pieces.size()).map(i -> response(pieces.get(i), i == pieces.size() - 1));
+		boolean usage = this.reportsUsage.get();
+		return Flux.range(0, pieces.size()).map(i -> response(pieces.get(i), usage && i == pieces.size() - 1));
 	}
 
 	private static ChatResponse response(String text, boolean withUsage) {

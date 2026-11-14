@@ -72,7 +72,7 @@ describe('App shell', () => {
     );
     expect(el.querySelector('[data-testid="role-badge"]')?.textContent).toContain('OWNER');
     expect(el.querySelector('[data-testid="user-name"]')?.textContent).toContain('Olivia Owner');
-    expect(el.querySelector('[data-testid="avatar"]')?.textContent).toContain('OO');
+    expect(el.querySelector('[data-testid="avatar"]')?.getAttribute('data-initials')).toBe('OO');
     const sections = Array.from(
       el.querySelectorAll('[data-testid="sidebar"] [data-testid="workspace-sections"] a'),
     ).map((a) => a.textContent?.trim());

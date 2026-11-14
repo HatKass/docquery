@@ -132,6 +132,40 @@ class ChatApiTests extends ApiIntegrationTest {
 	}
 
 	@Test
+	void anEmptyModelAnswerEndsTheStreamWithAFriendlyError() {
+		this.model.reply("");
+
+		List<Event> events = this.api.askAndRead(this.owner, this.workspaceId, this.conversationId,
+				"How many vacation days?");
+
+		assertThat(SseEvents.names(events)).containsExactly("start", "error");
+		assertThat(events.getLast().data().get("detail").asString())
+			.isEqualTo("The model returned an empty answer. Please try again.");
+		assertThat(events.getLast().data().at("/answer/status").asString()).isEqualTo("FAILED");
+	}
+
+	@Test
+	void tokensAreEstimatedAndFlaggedWhenTheProviderReportsNoUsage() {
+		this.model.reportNoUsage();
+		this.model.reply("Employees get 24 days of paid vacation [1].");
+
+		List<Event> events = this.api.askAndRead(this.owner, this.workspaceId, this.conversationId,
+				"How many vacation days do employees receive?");
+
+		UUID answerId = UUID.fromString(events.getLast().data().at("/answer/id").asString());
+		// About 4 characters per token: the prompt (rules, source, question) is well over 100 tokens, and
+		// the 43-character answer is 11.
+		assertThat(this.jdbc.sql("""
+				SELECT prompt_tokens > 100 AND completion_tokens = 11 AND estimated
+				  FROM chat_usage WHERE message_id = :id
+				""").param("id", answerId).query(Boolean.class).single()).isTrue();
+		assertThat(this.jdbc.sql("SELECT tokens_estimated FROM chat_message WHERE id = :id")
+			.param("id", answerId)
+			.query(Boolean.class)
+			.single()).isTrue();
+	}
+
+	@Test
 	void followUpQuestionsCarryTheConversationHistory() {
 		this.model.reply("24 days [1].");
 		this.api.askAndRead(this.owner, this.workspaceId, this.conversationId, "How many vacation days?");

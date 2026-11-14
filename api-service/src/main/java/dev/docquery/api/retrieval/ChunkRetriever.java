@@ -16,6 +16,8 @@ import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingRequest;
+import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.stereotype.Service;
 
 /**
@@ -176,7 +178,11 @@ public class ChunkRetriever {
 
 	private float[] embed(String query) {
 		try {
-			float[] vector = this.embeddingModel.embed(this.properties.queryPrefix() + query);
+			// No request options (not embed(String)): the provider then applies all of its configured
+			// options. Spring AI's generic options would drop Ollama-specific ones such as keep_alive.
+			EmbeddingResponse response = this.embeddingModel
+				.call(new EmbeddingRequest(List.of(this.properties.queryPrefix() + query), null));
+			float[] vector = (response.getResult() != null) ? response.getResult().getOutput() : null;
 			return (vector == null || vector.length == 0) ? null : vector;
 		}
 		catch (RuntimeException ex) {

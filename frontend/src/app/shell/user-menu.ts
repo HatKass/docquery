@@ -50,11 +50,14 @@ export function initials(name: string): string {
       (click)="toggle()"
       (keydown)="onTriggerKeydown($event)"
     >
+      <!-- Initials drawn by CSS: decorative, and not part of the button's accessible name (WCAG 2.5.3),
+           which is "Account menu for <name>". -->
       <span
-        class="flex size-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white"
+        class="flex size-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white before:content-[attr(data-initials)]"
         data-testid="avatar"
-        >{{ avatar() }}</span
-      >
+        [attr.data-initials]="avatar()"
+        aria-hidden="true"
+      ></span>
       <span class="hidden max-w-40 truncate font-medium sm:inline" data-testid="user-name">{{
         name()
       }}</span>
