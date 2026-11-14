@@ -1,0 +1,87 @@
+Brightwell Analytics - Employee Handbook
+Version 4.2, effective 1 March 2026. Owner: People Operations.
+
+All names, companies and figures in this document are fictional and were written as sample data for
+DocQuery. Any resemblance to a real organisation is coincidental.
+
+1. Welcome
+Brightwell Analytics was founded in 2014 in Leeds and helps retailers forecast demand. We are about
+180 people working across data science, engineering, sales and operations. This handbook explains
+how we work together and what you can expect from us. If a rule here conflicts with your employment
+contract, your contract wins.
+
+2. Working hours
+The standard working week is 37.5 hours. You can choose when to start and finish your day, but
+everyone is expected to be available during core hours, from 10:00 to 15:00 UK time, Monday to
+Friday. Meetings should not be scheduled outside core hours without the attendees' agreement.
+Overtime is not paid for salaried staff; instead, extra hours worked at a manager's request can be
+taken back as time off in lieu within the following two months.
+
+3. Who to ask
+Questions about pay, leave and contracts go to People Operations (people@brightwell.example).
+Questions about laptops, accounts and access go to the IT Service Desk (it@brightwell.example).
+<<<PAGE>>>
+4. Annual leave
+Full-time employees receive 25 days of paid annual leave per year, in addition to UK public
+holidays. Part-time employees receive the same entitlement pro rata.
+After two full years of service, your entitlement increases by one day for each further full year
+of service, up to a maximum of 30 days per year.
+You may carry over up to 5 unused days into the next leave year. Carried-over days must be taken
+by 31 March, after which they are lost. Leave requests are made in the HR portal and should be
+submitted at least two weeks in advance for absences longer than three days.
+
+5. Sick leave
+If you are ill, tell your manager before 10:00 on your first day of absence. You can self-certify
+sickness for up to 7 calendar days. For longer absences a fit note from a doctor is required.
+Brightwell pays full salary for up to 20 working days of sickness in any rolling 12-month period;
+after that, statutory sick pay applies.
+
+6. Parental leave
+The primary carer of a new child receives 26 weeks of parental leave at full pay, followed by up to
+13 weeks at statutory pay. The secondary carer receives 4 weeks of parental leave at full pay,
+which can be taken in one block or in separate weeks within the first year.
+<<<PAGE>>>
+7. Remote and hybrid work
+Brightwell is a hybrid company. Employees are expected in the office at least 2 days per week. Our
+anchor days are Tuesday and Thursday, when teams plan and meet in person.
+New starters receive a one-off home office allowance of 300 GBP for a chair, desk or monitor.
+Receipts must be submitted as an expense claim within the first three months.
+
+Working from abroad: you may work from another country for up to 20 working days per calendar
+year. Each stay needs written approval from People Operations at least four weeks before you
+travel, because of tax and data protection rules. Some countries are excluded for security reasons;
+People Operations keeps the current list.
+
+8. Equipment
+Every employee receives a company laptop. Laptops must use full-disk encryption and must not be
+lent to anyone, including family members. Lost or stolen equipment must be reported as a security
+incident (see section 12).
+<<<PAGE>>>
+9. Expenses and travel
+Expense claims are submitted in Ledgerly within 30 days of the expense, with a receipt.
+- Meals while travelling: up to 45 GBP per day.
+- Hotels: up to 160 GBP per night in London and 110 GBP per night elsewhere.
+- Rail travel: standard class, unless the journey is longer than 3 hours, in which case first
+  class may be booked.
+- Using your own car: 45 pence per mile.
+Flights must be booked through the travel desk and approved by your manager beforehand.
+
+10. Learning and development
+Each employee has a learning budget of 1,200 GBP per year for courses, books, certifications and
+conferences. Unused budget does not carry over. Requests above 500 GBP need your manager's approval.
+Everyone can also take 3 learning days per year, in addition to annual leave.
+<<<PAGE>>>
+11. Probation, reviews and leaving
+New employees have a probation period of 6 months. During probation, the notice period on either
+side is 1 month. After probation, the notice period is 2 months, unless your contract says
+otherwise. Performance reviews take place twice a year, in April and October.
+
+12. Security incidents
+Report any suspected security incident, including phishing emails, lost devices or data sent to
+the wrong person, to security@brightwell.example within 1 hour of noticing it. Do not try to
+investigate on your own and do not delete evidence. The Security team is available around the clock.
+
+13. Raising concerns
+If you have a concern about how you are treated at work, talk to your manager first. If that is
+not possible, contact People Operations. Concerns can also be raised anonymously through the
+Speak Up line, which is run by an independent provider.

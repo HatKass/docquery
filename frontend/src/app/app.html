@@ -27,11 +27,12 @@
         class="flex shrink-0 items-center gap-2 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         aria-label="DocQuery home"
       >
+        <!-- Decorative letters drawn by CSS, so they are not part of the link's accessible name (WCAG 2.5.3). -->
         <span
-          class="flex size-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white"
+          class="flex size-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white before:content-[attr(data-letters)]"
+          data-letters="DQ"
           aria-hidden="true"
-          >DQ</span
-        >
+        ></span>
         <h1 class="text-lg font-bold tracking-tight text-slate-900">DocQuery</h1>
       </a>
       @if (auth.isAuthenticated()) {

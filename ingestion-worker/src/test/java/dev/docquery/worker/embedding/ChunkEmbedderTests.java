@@ -2,7 +2,8 @@ package dev.docquery.worker.embedding;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
-import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.embedding.Embedding;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingRequest;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.embedding.EmbeddingResponseMetadata;
 
@@ -54,7 +56,7 @@ class ChunkEmbedderTests {
 	@Test
 	void usesReportedTokenUsage() {
 		EmbeddingModel model = mock(EmbeddingModel.class);
-		when(model.embedForResponse(anyList()))
+		when(model.call(any(EmbeddingRequest.class)))
 			.thenReturn(new EmbeddingResponse(List.of(new Embedding(new float[] { 1, 0 }, 0)),
 					new EmbeddingResponseMetadata("m", new DefaultUsage(42, 0))));
 		ChunkEmbedder embedder = new ChunkEmbedder(model, "m", 10, "");
@@ -63,13 +65,14 @@ class ChunkEmbedderTests {
 
 		assertThat(embedded.tokensEstimated()).isFalse();
 		assertThat(embedded.inputTokens()).isEqualTo(42);
-		verify(model, times(1)).embedForResponse(anyList());
+		// Without request options, so the provider applies all of its configured ones (keep_alive).
+		verify(model, times(1)).call(argThat(request -> request.getOptions() == null));
 	}
 
 	@Test
 	void rejectsAResponseWithMissingVectors() {
 		EmbeddingModel model = mock(EmbeddingModel.class);
-		when(model.embedForResponse(anyList()))
+		when(model.call(any(EmbeddingRequest.class)))
 			.thenReturn(new EmbeddingResponse(List.of(new Embedding(new float[] { 1, 0 }, 0))));
 		ChunkEmbedder embedder = new ChunkEmbedder(model, "m", 10, "");
 

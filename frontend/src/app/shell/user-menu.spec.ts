@@ -58,7 +58,9 @@ describe('UserMenu', () => {
 
   it('shows the initials and is a closed menu button', async () => {
     const { el, button } = await render();
-    expect(el.querySelector('[data-testid="avatar"]')?.textContent).toBe('OO');
+    // Drawn by CSS from the attribute: visible, but not part of the button's accessible name.
+    expect(el.querySelector('[data-testid="avatar"]')?.getAttribute('data-initials')).toBe('OO');
+    expect(button.getAttribute('aria-label')).toBe('Account menu for Olivia Owner');
     expect(button.getAttribute('aria-haspopup')).toBe('menu');
     expect(button.getAttribute('aria-expanded')).toBe('false');
     expect(el.querySelector('[role="menu"]')).toBeNull();

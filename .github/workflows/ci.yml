@@ -29,8 +29,9 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: api-service/pom.xml
-      # Testcontainers uses the runner's Docker daemon (pgvector Postgres).
-      - name: Build and test
+      # Testcontainers uses the runner's Docker daemon (pgvector Postgres). "verify" also runs the RAG
+      # evaluation with stub models (RagEvaluationTests) and enforces the JaCoCo coverage minimum.
+      - name: Build, test, evaluate and check coverage
         run: chmod +x mvnw && ./mvnw -B -ntp verify
       - name: Upload test reports
         if: failure()
@@ -38,6 +39,15 @@ jobs:
         with:
           name: api-service-test-reports
           path: api-service/target/surefire-reports/
+      - name: Upload coverage and RAG evaluation reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-service-coverage-and-evaluation
+          path: |
+            api-service/target/site/jacoco/
+            api-service/target/evaluation/
+          if-no-files-found: ignore
 
   ingestion-worker:
     name: ingestion-worker (build + tests)
@@ -54,8 +64,9 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: ingestion-worker/pom.xml
-      # Testcontainers uses the runner's Docker daemon (Kafka in KRaft mode).
-      - name: Build and test
+      # Testcontainers uses the runner's Docker daemon (Kafka in KRaft mode). Also checks that the
+      # sample PDFs and the evaluation chunk fixture are up to date (EvaluationFixtureTests).
+      - name: Build, test and check coverage
         run: chmod +x mvnw && ./mvnw -B -ntp verify
       - name: Upload test reports
         if: failure()
@@ -63,6 +74,13 @@ jobs:
         with:
           name: ingestion-worker-test-reports
           path: ingestion-worker/target/surefire-reports/
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ingestion-worker-coverage
+          path: ingestion-worker/target/site/jacoco/
+          if-no-files-found: ignore
 
   frontend:
     name: frontend (build + unit tests)
@@ -81,6 +99,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run test:ci
+      # The Playwright e2e suite needs the whole stack and a chat model, so it runs locally
+      # (frontend/e2e/README.md); CI makes sure it still compiles.
+      - run: npm run e2e:typecheck
 
   compose:
     name: docker compose (config + image builds)

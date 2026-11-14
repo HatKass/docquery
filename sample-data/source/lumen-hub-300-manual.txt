@@ -1,0 +1,80 @@
+Lumen Hub 300 - User Manual
+Smart home controller by Corvid Devices. Manual revision C, firmware 3.8.
+
+The Lumen Hub 300, Corvid Devices and everything in this manual are fictional sample data written
+for DocQuery. They do not describe a real product.
+
+1. Overview
+The Lumen Hub 300 connects your lights, sensors, locks and thermostats and lets you control them
+from the Lumen app, even when you are away from home. Automations run on the hub itself, so they
+keep working during an internet outage.
+
+2. In the box
+- Lumen Hub 300
+- USB-C power adapter (5 V, 2 A) and 1.5 m cable
+- Wall mounting plate and two screws
+- Quick start card
+
+3. Technical specifications
+Radios: Zigbee 3.0, Thread 1.3 and Wi-Fi 6 (2.4 and 5 GHz). Bluetooth LE is used for setup only.
+Capacity: up to 128 paired devices.
+Power: 5 V, 2 A over USB-C. Typical consumption: 1.8 W.
+Size and weight: 98 x 98 x 24 mm, 180 g.
+Operating conditions: 0 to 40 degrees Celsius, indoor use only, 10 to 85 % humidity.
+<<<PAGE>>>
+4. Setting up the hub
+1. Download the Lumen app and create an account.
+2. Plug in the hub. The status light pulses white while it starts, which takes about one minute.
+3. In the app, tap Add hub and scan the QR code on the bottom of the hub.
+4. Choose your Wi-Fi network. The hub only joins networks protected with WPA2 or WPA3.
+Pairing mode for new devices lasts 120 seconds. To start it again, press the pair button once.
+
+5. Status light
+- Solid green: the hub is online and working normally.
+- Pulsing white: the hub is starting.
+- Pulsing blue: pairing mode is on.
+- Pulsing amber: the hub is not set up yet or is waiting for Wi-Fi details.
+- Solid red: the hub has no network connection.
+- Flashing red: a firmware update failed (see error E37).
+
+6. Resetting the hub
+To restart the hub, hold the reset button for 10 seconds; your settings are kept.
+To restore factory settings, hold the reset button for 30 seconds until the light turns amber.
+A factory reset removes all paired devices and automations.
+<<<PAGE>>>
+7. Troubleshooting and error codes
+Error codes are shown in the Lumen app under Hub > Diagnostics.
+
+E14 - Zigbee radio not responding. Unplug the hub for 30 seconds and plug it in again. If the error
+comes back, contact Corvid support; the hub may need to be replaced under warranty.
+
+E21 - Wi-Fi authentication failed. The Wi-Fi password was rejected. Check the password in the app,
+then make sure the network uses WPA2 or WPA3.
+
+E37 - Firmware signature invalid. The downloaded update could not be verified and was not installed.
+Do not unplug the hub. It restores the previous firmware automatically and retries the update after
+one hour. If E37 appears three times in a row, contact Corvid support.
+
+E52 - Device limit reached. The hub already has 128 paired devices. Remove devices you no longer use
+before pairing new ones.
+
+Devices drop off the network: move the hub to a central, raised position away from metal objects and
+microwave ovens, and add mains-powered Zigbee devices, which act as repeaters.
+<<<PAGE>>>
+8. Updates
+Firmware updates are released about once a month and install automatically between 02:00 and 05:00
+local time. You can postpone an update by up to 7 days in the app.
+
+9. Warranty
+The Lumen Hub 300 has a 2-year limited warranty from the date of purchase. If you register the hub
+in the Lumen app within 30 days of purchase, the warranty is extended to 3 years. The warranty does
+not cover water damage, damage caused by opening the case, or use with a power adapter other than
+the one supplied.
+
+10. Support
+Corvid support is available by chat in the Lumen app, Monday to Saturday, 08:00 to 20:00.
+Have your hub's serial number ready; it is printed next to the QR code.
+
+11. Safety
+Do not cover the hub or install it near a heat source. Keep it away from water. Children should not
+play with the hub or its cable.

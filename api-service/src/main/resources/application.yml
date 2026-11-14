@@ -85,6 +85,9 @@ spring:
         num-predict: ${CHAT_MAX_TOKENS:1024}
       embedding:
         model: ${OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
+        # Keeps the query-embedding model loaded between questions (Ollama's default: 5m); a cold
+        # start costs seconds on a small GPU. Same setting as the ingestion worker.
+        keep-alive: ${OLLAMA_EMBEDDING_KEEP_ALIVE:30m}
       init:
         # Models are pulled by you (ollama pull ...), never silently at startup.
         pull-model-strategy: never

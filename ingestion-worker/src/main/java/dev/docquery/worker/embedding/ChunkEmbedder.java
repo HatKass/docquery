@@ -7,6 +7,7 @@ import java.util.List;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.embedding.Embedding;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingRequest;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.util.StringUtils;
 
@@ -62,7 +63,9 @@ public class ChunkEmbedder {
 				.stream()
 				.map(chunk -> this.documentPrefix + chunk.content())
 				.toList();
-			EmbeddingResponse response = this.embeddingModel.embedForResponse(inputs);
+			// No request options (not embedForResponse): the provider then applies all of its configured
+			// options. Spring AI's generic options would drop Ollama-specific ones such as keep_alive.
+			EmbeddingResponse response = this.embeddingModel.call(new EmbeddingRequest(inputs, null));
 			requests++;
 			List<Embedding> results = new ArrayList<>(response.getResults());
 			if (results.size() != inputs.size()) {
